@@ -1,0 +1,22 @@
+/*
+ * Polish Overlay Styles
+ *
+ * These styles are loaded as a <link> tag in the user's page but all visual
+ * overlay elements live inside a Shadow DOM container, so these styles only
+ * affect the host wrapper. The shadow-internal styles are defined in overlay.js.
+ *
+ * This file exists as an extension point for future theming and as a place
+ * to put any page-level resets Polish needs.
+ */
+
+[data-polish-root] {
+  /* Ensure the host element never interferes with page layout */
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: visible !important;
+  z-index: 2147483647 !important;
+  pointer-events: none !important;
+}

@@ -1,0 +1,17 @@
+{
+  "name": "polish",
+  "version": "0.1.0",
+  "description": "Visually edit CSS/HTML on your live page",
+  "bin": {
+    "polish": "./bin/polish"
+  },
+  "type": "module",
+  "dependencies": {
+    "commander": "latest",
+    "http-proxy": "latest",
+    "ws": "latest",
+    "postcss": "latest",
+    "htmlparser2": "latest",
+    "chokidar": "latest"
+  }
+}
