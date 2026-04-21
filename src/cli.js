@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createProxyServer } from './proxy.js';
 import { createWebSocketServer } from './server.js';
+import { createWatcher } from './watcher.js';
 
 const program = new Command();
 
@@ -25,6 +26,7 @@ program
 
     const httpServer = createProxyServer(config);
     const wss = createWebSocketServer(httpServer, config);
+    const watcher = createWatcher(dir, { broadcast: wss.broadcast.bind(wss) });
 
     httpServer.listen(polishPort, () => {
       console.log(
