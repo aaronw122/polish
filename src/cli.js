@@ -34,6 +34,7 @@ program
     wss.setResolver(resolver);
     wss.resolver = resolver;
     const watcher = createWatcher(dir, { broadcast: wss.broadcast.bind(wss) });
+    watcher.onFileChange(() => resolver.rescan());
 
     httpServer.listen(polishPort, () => {
       console.log(
