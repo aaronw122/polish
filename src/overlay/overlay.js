@@ -1556,11 +1556,28 @@
       if (!href) continue;
 
       const shouldReload = files.some((f) => href.includes(f));
-      if (shouldReload) {
-        const url = new URL(href, location.href);
-        url.searchParams.set('_polish', Date.now());
-        link.href = url.toString();
-      }
+      if (!shouldReload) continue;
+
+      // Build the cache-busted URL from the original href (strip any previous _polish param)
+      const url = new URL(href, location.href);
+      url.searchParams.set('_polish', Date.now());
+
+      // Clone the link to create a fresh element; the browser fetches the new stylesheet
+      const newLink = link.cloneNode(false);
+      newLink.href = url.toString();
+
+      // Once the new stylesheet loads, remove the old one to avoid FOUC
+      newLink.onload = () => {
+        link.remove();
+      };
+
+      // If the new link fails to load, keep the old one in place
+      newLink.onerror = () => {
+        newLink.remove();
+      };
+
+      // Insert the new link right after the old one so it takes precedence
+      link.parentNode.insertBefore(newLink, link.nextSibling);
     }
   }
 

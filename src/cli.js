@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { Command } from 'commander';
-import path from 'node:path';
 import { createProxyServer } from './proxy.js';
 import { createWebSocketServer } from './server.js';
 import { createResolver } from './resolver.js';
+import { createWatcher } from './watcher.js';
 
 const program = new Command();
 
@@ -32,9 +32,8 @@ program
     const httpServer = createProxyServer(config);
     const wss = createWebSocketServer(httpServer, config);
     wss.setResolver(resolver);
-
-    // Expose resolver on wss so the watcher (M5) can call rescan()
     wss.resolver = resolver;
+    const watcher = createWatcher(dir, { broadcast: wss.broadcast.bind(wss) });
 
     httpServer.listen(polishPort, () => {
       console.log(
