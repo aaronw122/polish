@@ -536,10 +536,43 @@ export class Resolver {
     // 6. Shape the response: primary match is the highest-specificity rule
     const primary = matchedRules[matchedRules.length - 1] || null;
 
+    // 7. Determine styleType based on the primary match
+    let styleType = null;
+    let cssRule = null;
+
+    if (primary) {
+      if (primary.selector === '[inline]') {
+        styleType = 'inline';
+        // Find the next most specific non-inline rule as a CSS fallback target.
+        // When the user edits a property that exists in a CSS rule (not inline),
+        // the panel can route the change to the CSS file instead of the inline style.
+        for (let i = matchedRules.length - 2; i >= 0; i--) {
+          if (matchedRules[i].selector !== '[inline]') {
+            cssRule = {
+              file: matchedRules[i].file,
+              line: matchedRules[i].line,
+              selector: matchedRules[i].selector,
+              properties: matchedRules[i].properties,
+            };
+            break;
+          }
+        }
+      } else {
+        const ext = path.extname(primary.file || '').toLowerCase();
+        if (ext === '.html' || ext === '.htm') {
+          styleType = 'style-block';
+        } else {
+          styleType = 'css';
+        }
+      }
+    }
+
     return {
       file: primary?.file || null,
       line: primary?.line || 0,
       selector: primary?.selector || null,
+      styleType,
+      cssRule,
       properties,
       matchedRules,
       cssFiles: this.cssFiles,

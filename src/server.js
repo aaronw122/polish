@@ -24,6 +24,8 @@ function handleSelectMessage(ws, message, resolver) {
       file: result.file,
       line: result.line,
       selector: result.selector,
+      styleType: result.styleType || null,
+      cssRule: result.cssRule || null,
       properties: result.properties,
       matchedRules: result.matchedRules,
       cssFiles: result.cssFiles || [],

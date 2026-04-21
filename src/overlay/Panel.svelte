@@ -171,6 +171,23 @@
   function sendChangeMessage(property, value) {
     const src = $sourceData;
     if (!src || !src.selector) return;
+
+    // When the primary match is inline but the property exists in a CSS rule,
+    // route the change to the CSS rule instead of the inline style.
+    const cssRule = src.cssRule;
+    if (src.styleType === 'inline' && cssRule && cssRule.properties && property in cssRule.properties) {
+      send({
+        type: 'change',
+        file: cssRule.file,
+        selector: cssRule.selector,
+        property: property,
+        value: value,
+        line: cssRule.line || undefined,
+        styleType: 'css',
+      });
+      return;
+    }
+
     send({
       type: 'change',
       file: src.file,
@@ -178,6 +195,7 @@
       property: property,
       value: value,
       line: src.line || undefined,
+      styleType: src.styleType || undefined,
     });
   }
 

@@ -907,3 +907,139 @@ describe('Unlinked CSS file filtering', () => {
     cleanupDir(dir);
   });
 });
+
+// ── styleType classification ──────────────────────────────────────
+
+describe('styleType classification', () => {
+  it('element with inline styles + CSS rule returns styleType "inline"', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { padding: 16px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: 'color: green;',
+    });
+
+    // Primary match is [inline] because inline specificity is highest
+    assert.equal(result.selector, '[inline]');
+    assert.equal(result.styleType, 'inline');
+
+    cleanupDir(dir);
+  });
+
+  it('element with CSS rule only returns styleType "css"', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { padding: 16px; color: red; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.selector, '.card');
+    assert.equal(result.styleType, 'css');
+
+    cleanupDir(dir);
+  });
+
+  it('element with <style> block rule returns styleType "style-block"', () => {
+    const dir = createTempProject({
+      'index.html': `<!DOCTYPE html>
+<html>
+<head>
+<style>
+.hero {
+  background: blue;
+}
+</style>
+</head>
+<body><div class="hero">Hello</div></body>
+</html>`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['hero'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.selector, '.hero');
+    assert.equal(result.styleType, 'style-block');
+
+    cleanupDir(dir);
+  });
+
+  it('element with inline styles includes cssRule fallback', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { padding: 16px; color: blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: 'color: green;',
+    });
+
+    assert.equal(result.styleType, 'inline');
+
+    // cssRule should point to the .card CSS rule
+    assert.ok(result.cssRule);
+    assert.equal(result.cssRule.selector, '.card');
+    assert.ok(result.cssRule.file.endsWith('styles.css'));
+    assert.ok(result.cssRule.properties);
+    // The CSS rule has padding, so editing padding should route there
+    assert.equal(result.cssRule.properties.padding, '16px');
+
+    cleanupDir(dir);
+  });
+
+  it('element with only inline styles has null cssRule', () => {
+    const dir = createTempProject({
+      'styles.css': `.other { padding: 16px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'span',
+      id: '',
+      classes: [],
+      inlineStyles: 'color: green;',
+    });
+
+    assert.equal(result.styleType, 'inline');
+    assert.equal(result.cssRule, null);
+
+    cleanupDir(dir);
+  });
+
+  it('no matched rules returns null styleType', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { padding: 16px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'span',
+      id: '',
+      classes: ['unknown'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.styleType, null);
+    assert.equal(result.cssRule, null);
+
+    cleanupDir(dir);
+  });
+});

@@ -362,11 +362,28 @@ async function writeInlineStyle(filePath, selector, property, value, lineHint) {
   const { content, lineEnding } = readAndNormalize(filePath);
   const lines = content.split('\n');
 
-  const selectorInfo = parseSelectorForLineMatching(selector);
-  const candidates = findMatchingLineIndices(lines, selectorInfo);
-  if (candidates.length === 0) return;
+  let targetLineIndex;
 
-  const targetLineIndex = pickClosestCandidate(candidates, lineHint);
+  // When the selector is the synthetic [inline] marker, we cannot parse it
+  // for tag/id/class matching. Instead, use the line hint directly to find
+  // the target element line.
+  if (selector === '[inline]' && lineHint != null) {
+    // lineHint is 1-based; find the closest line with a style="" attribute
+    const hintIdx = lineHint - 1;
+    const candidates = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (/style\s*=\s*"[^"]*"/i.test(lines[i]) || /<\w[^>]*?\s*\/?>/.test(lines[i])) {
+        candidates.push(i);
+      }
+    }
+    targetLineIndex = pickClosestCandidate(candidates.length > 0 ? candidates : [hintIdx], lineHint);
+  } else {
+    const selectorInfo = parseSelectorForLineMatching(selector);
+    const candidates = findMatchingLineIndices(lines, selectorInfo);
+    if (candidates.length === 0) return;
+    targetLineIndex = pickClosestCandidate(candidates, lineHint);
+  }
+
   lines[targetLineIndex] = updateInlineStyleOnLine(lines[targetLineIndex], property, value);
 
   writeWithEnding(filePath, lines.join('\n'), lineEnding);

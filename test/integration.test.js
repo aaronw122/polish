@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createResolver } from '../src/resolver.js';
-import { _writeCssFile, _writeStyleBlock } from '../src/writer.js';
+import { createWriter, _writeCssFile, _writeStyleBlock, _writeInlineStyle } from '../src/writer.js';
 import { _validateChangeMessage } from '../src/server.js';
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -382,5 +382,155 @@ describe('server change message validation', () => {
       selector: '.card',
     });
     assert.equal(error, null);
+  });
+});
+
+// ── Integration: styleType end-to-end pipeline ───────────────────
+
+describe('Integration: styleType end-to-end pipeline', () => {
+  afterEach(cleanup);
+
+  it('inline style element resolves with styleType, writer uses inline strategy', async () => {
+    setup({
+      'index.html': `<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="card" style="color: green;">Hello</div>
+</body>
+</html>`,
+      'styles.css': `.card {\n  padding: 16px;\n}\n`,
+    });
+
+    // Step 1: Resolve the element (simulates overlay select -> server resolve)
+    const resolver = createResolver(tmpDir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: 'color: green;',
+    });
+
+    // Verify styleType is inline (the bug: this was missing before)
+    assert.equal(result.styleType, 'inline');
+    assert.equal(result.selector, '[inline]');
+
+    // Step 2: Simulate a change message with styleType routed through
+    // The writer should use inline strategy, not style-block
+    const writer = createWriter(tmpDir);
+    writer.applyChange({
+      file: path.relative(tmpDir, result.file),
+      selector: result.selector,
+      property: 'color',
+      value: 'red',
+      line: result.line,
+      styleType: result.styleType,
+    });
+    await writer.flushAll();
+
+    // Step 3: Verify the inline style was updated correctly
+    const htmlContent = readFile('index.html');
+    assert.ok(htmlContent.includes('color: red'), 'Inline style should be updated to red');
+    // The CSS file should be untouched
+    const cssContent = readFile('styles.css');
+    assert.ok(cssContent.includes('padding: 16px'), 'CSS file should be untouched');
+    assert.ok(!cssContent.includes('[inline]'), 'CSS file should not contain [inline] selector');
+    assert.ok(!cssContent.includes('color: red'), 'CSS file should not contain inline color value');
+  });
+
+  it('CSS-authored property on element with inline style routes to CSS file', async () => {
+    setup({
+      'index.html': `<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="card" style="color: green;">Hello</div>
+</body>
+</html>`,
+      'styles.css': `.card {\n  padding: 16px;\n}\n`,
+    });
+
+    const resolver = createResolver(tmpDir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: 'color: green;',
+    });
+
+    assert.equal(result.styleType, 'inline');
+    // cssRule fallback should point to the .card rule
+    assert.ok(result.cssRule);
+    assert.equal(result.cssRule.selector, '.card');
+
+    // Editing padding (a CSS-authored property) should route to the CSS file
+    const writer = createWriter(tmpDir);
+    writer.applyChange({
+      file: path.relative(tmpDir, result.cssRule.file),
+      selector: result.cssRule.selector,
+      property: 'padding',
+      value: '24px',
+      line: result.cssRule.line,
+      styleType: 'css',
+    });
+    await writer.flushAll();
+
+    // The CSS file should be updated
+    const cssContent = readFile('styles.css');
+    assert.ok(cssContent.includes('padding: 24px'), 'CSS padding should be updated');
+    assert.ok(!cssContent.includes('padding: 16px'), 'Old padding value should be replaced');
+
+    // The HTML inline style should remain untouched
+    const htmlContent = readFile('index.html');
+    assert.ok(htmlContent.includes('style="color: green;"'), 'Inline style should be untouched');
+  });
+
+  it('style-block rule resolves with correct styleType', async () => {
+    setup({
+      'page.html': `<!DOCTYPE html>
+<html>
+<head>
+<style>
+.hero {
+  background: blue;
+}
+</style>
+</head>
+<body>
+<div class="hero">Welcome</div>
+</body>
+</html>`,
+    });
+
+    const resolver = createResolver(tmpDir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['hero'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.styleType, 'style-block');
+    assert.equal(result.cssRule, null);
+
+    // Writer should use style-block strategy
+    const writer = createWriter(tmpDir);
+    writer.applyChange({
+      file: path.relative(tmpDir, result.file),
+      selector: result.selector,
+      property: 'background',
+      value: 'green',
+      line: result.line,
+      styleType: result.styleType,
+    });
+    await writer.flushAll();
+
+    const content = readFile('page.html');
+    assert.ok(content.includes('background: green'), 'Style block should be updated');
+    assert.ok(!content.includes('background: blue'), 'Old value should be replaced');
   });
 });
