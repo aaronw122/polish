@@ -1,6 +1,8 @@
 import { Command } from 'commander';
+import path from 'node:path';
 import { createProxyServer } from './proxy.js';
 import { createWebSocketServer } from './server.js';
+import { createResolver } from './resolver.js';
 
 const program = new Command();
 
@@ -13,7 +15,7 @@ program
   .action((options) => {
     const targetPort = parseInt(options.port, 10);
     const polishPort = targetPort + 1;
-    const dir = options.dir;
+    const dir = path.resolve(options.dir);
 
     const config = {
       targetPort,
@@ -23,8 +25,15 @@ program
       polishUrl: `http://localhost:${polishPort}`,
     };
 
+    const resolver = createResolver(dir);
+    console.log(`Polish: scanned ${dir} for CSS/HTML sources (${resolver.rules.length} rules found)`);
+
     const httpServer = createProxyServer(config);
     const wss = createWebSocketServer(httpServer, config);
+    wss.setResolver(resolver);
+
+    // Expose resolver on wss so the watcher (M5) can call rescan()
+    wss.resolver = resolver;
 
     httpServer.listen(polishPort, () => {
       console.log(

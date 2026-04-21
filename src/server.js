@@ -6,6 +6,8 @@ export function createWebSocketServer(httpServer, config) {
     path: '/__polish__/ws',
   });
 
+  let resolver = null;
+
   wss.on('connection', (ws) => {
     console.log('Polish: overlay connected');
 
@@ -29,13 +31,33 @@ export function createWebSocketServer(httpServer, config) {
 
   function handleMessage(ws, message) {
     switch (message.type) {
-      case 'select':
-        console.log(
-          `Polish: selected <${message.tag}${message.id ? '#' + message.id : ''}${
-            message.classes?.length ? '.' + message.classes.join('.') : ''
-          }>`
-        );
+      case 'select': {
+        const desc = `<${message.tag}${message.id ? '#' + message.id : ''}${
+          message.classes?.length ? '.' + message.classes.join('.') : ''
+        }>`;
+        console.log(`Polish: selected ${desc}`);
+
+        if (resolver) {
+          const result = resolver.resolve({
+            tag: message.tag,
+            id: message.id,
+            classes: message.classes,
+            inlineStyles: message.inlineStyles || '',
+          });
+
+          ws.send(
+            JSON.stringify({
+              type: 'source',
+              file: result.file,
+              line: result.line,
+              selector: result.selector,
+              properties: result.properties,
+              matchedRules: result.matchedRules,
+            })
+          );
+        }
         break;
+      }
 
       case 'deselect':
         console.log('Polish: deselected');
@@ -61,7 +83,16 @@ export function createWebSocketServer(httpServer, config) {
     }
   }
 
+  /**
+   * Set the resolver instance for source resolution.
+   * Called by CLI on startup after the resolver is initialized.
+   */
+  function setResolver(resolverInstance) {
+    resolver = resolverInstance;
+  }
+
   wss.broadcast = broadcast;
+  wss.setResolver = setResolver;
 
   return wss;
 }
