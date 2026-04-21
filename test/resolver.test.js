@@ -778,3 +778,132 @@ describe('Pseudo-classes in resolved rules', () => {
     cleanupDir(dir);
   });
 });
+
+// ── Unlinked CSS file filtering ───────────────────────────────────
+
+describe('Unlinked CSS file filtering', () => {
+  it('excludes unlinked CSS files when HTML files exist', () => {
+    const dir = createTempProject({
+      'index.html': `<html>
+<head><link rel="stylesheet" href="styles.css"></head>
+<body><div class="card">Hello</div></body>
+</html>`,
+      'styles.css': `.card { padding: 16px; }`,
+      'admin.css': `.card { padding: 32px; color: red; }`,
+    });
+
+    const resolver = createResolver(dir);
+
+    // Only styles.css rules should be in the pool — admin.css is not linked
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.properties.padding, '16px');
+    assert.equal(result.properties.color, undefined);
+    assert.equal(result.matchedRules.length, 1);
+    assert.ok(result.matchedRules[0].file.endsWith('styles.css'));
+
+    // cssFiles should only contain the linked stylesheet
+    assert.equal(resolver.cssFiles.length, 1);
+    assert.ok(resolver.cssFiles[0].endsWith('styles.css'));
+
+    cleanupDir(dir);
+  });
+
+  it('includes all CSS files when no HTML files exist (CSS-only fallback)', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { padding: 16px; }`,
+      'admin.css': `.card { color: red; }`,
+      'theme.css': `body { font-size: 14px; }`,
+    });
+
+    const resolver = createResolver(dir);
+
+    // All CSS files should be included as fallback
+    assert.equal(resolver.cssFiles.length, 3);
+    assert.ok(resolver.rules.length >= 3);
+
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // Both .card rules should match
+    assert.equal(result.matchedRules.length, 2);
+
+    cleanupDir(dir);
+  });
+
+  it('includes CSS from multiple HTML files linking different stylesheets', () => {
+    const dir = createTempProject({
+      'index.html': `<html>
+<head><link rel="stylesheet" href="main.css"></head>
+<body></body>
+</html>`,
+      'about.html': `<html>
+<head><link rel="stylesheet" href="about.css"></head>
+<body></body>
+</html>`,
+      'main.css': `.hero { color: blue; }`,
+      'about.css': `.bio { color: green; }`,
+      'unused.css': `.orphan { color: red; }`,
+    });
+
+    const resolver = createResolver(dir);
+
+    // Both linked CSS files should be present
+    assert.ok(resolver.cssFiles.some((f) => f.endsWith('main.css')));
+    assert.ok(resolver.cssFiles.some((f) => f.endsWith('about.css')));
+    // Unlinked file should NOT be present
+    assert.ok(!resolver.cssFiles.some((f) => f.endsWith('unused.css')));
+
+    // Rules from linked files should be resolvable
+    const heroResult = resolver.resolve({ tag: 'div', id: '', classes: ['hero'], inlineStyles: '' });
+    assert.equal(heroResult.properties.color, 'blue');
+
+    const bioResult = resolver.resolve({ tag: 'div', id: '', classes: ['bio'], inlineStyles: '' });
+    assert.equal(bioResult.properties.color, 'green');
+
+    // Rules from unlinked file should NOT be resolvable
+    const orphanResult = resolver.resolve({ tag: 'div', id: '', classes: ['orphan'], inlineStyles: '' });
+    assert.equal(orphanResult.matchedRules.length, 0);
+
+    cleanupDir(dir);
+  });
+
+  it('resolves CSS linked via relative path (./css/styles.css)', () => {
+    const dir = createTempProject({
+      'index.html': `<html>
+<head><link rel="stylesheet" href="./css/styles.css"></head>
+<body></body>
+</html>`,
+      'css/styles.css': `.container { max-width: 960px; }`,
+      'css/admin.css': `.container { max-width: 1200px; }`,
+    });
+
+    const resolver = createResolver(dir);
+
+    // The linked file via relative path should be included
+    assert.ok(resolver.cssFiles.some((f) => f.endsWith(path.join('css', 'styles.css'))));
+    // The unlinked sibling should NOT be included
+    assert.ok(!resolver.cssFiles.some((f) => f.endsWith(path.join('css', 'admin.css'))));
+
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['container'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.properties['max-width'], '960px');
+    assert.equal(result.matchedRules.length, 1);
+
+    cleanupDir(dir);
+  });
+});
