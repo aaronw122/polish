@@ -31,7 +31,32 @@ function handleSelectMessage(ws, message, resolver) {
   );
 }
 
+function validateChangeMessage(message) {
+  if (!message.file || typeof message.file !== 'string') {
+    return 'missing or invalid "file" field';
+  }
+  if (message.file.startsWith('/')) {
+    return 'absolute paths are not allowed in "file" field';
+  }
+  if (message.file.includes('..')) {
+    return '"file" field must not contain ".."';
+  }
+  if (!message.property || typeof message.property !== 'string') {
+    return 'missing or invalid "property" field';
+  }
+  if (message.value == null || typeof message.value !== 'string') {
+    return 'missing or invalid "value" field';
+  }
+  return null;
+}
+
 function handleChangeMessage(message, writer) {
+  const error = validateChangeMessage(message);
+  if (error) {
+    console.error(`Polish: rejected change message — ${error}`);
+    return;
+  }
+
   console.log(
     `Polish: change ${message.selector} { ${message.property}: ${message.value} } in ${message.file}`
   );
@@ -43,6 +68,8 @@ function handleFlushMessage(writer) {
 }
 
 // ── WebSocket server factory ──────────────────────────────────────
+
+export { validateChangeMessage as _validateChangeMessage };
 
 export function createWebSocketServer(httpServer, config) {
   const writer = createWriter(config.dir);

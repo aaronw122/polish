@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createResolver } from '../src/resolver.js';
 import { _writeCssFile, _writeStyleBlock } from '../src/writer.js';
+import { _validateChangeMessage } from '../src/server.js';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -331,5 +332,55 @@ describe('Integration: cssFiles tracking', () => {
 
     assert.ok(Array.isArray(result.cssFiles));
     assert.ok(result.cssFiles.length >= 1);
+  });
+});
+
+// ── Server Message Validation ─────────────────────────────────────
+
+describe('server change message validation', () => {
+  it('rejects messages with missing file field', () => {
+    const error = _validateChangeMessage({ property: 'color', value: 'red' });
+    assert.ok(error);
+    assert.ok(error.includes('file'));
+  });
+
+  it('rejects messages with non-string file field', () => {
+    const error = _validateChangeMessage({ file: 123, property: 'color', value: 'red' });
+    assert.ok(error);
+    assert.ok(error.includes('file'));
+  });
+
+  it('rejects messages with absolute path in file field', () => {
+    const error = _validateChangeMessage({ file: '/etc/passwd', property: 'color', value: 'red' });
+    assert.ok(error);
+    assert.ok(error.includes('absolute'));
+  });
+
+  it('rejects messages with .. in file field', () => {
+    const error = _validateChangeMessage({ file: '../outside.css', property: 'color', value: 'red' });
+    assert.ok(error);
+    assert.ok(error.includes('..'));
+  });
+
+  it('rejects messages with missing property field', () => {
+    const error = _validateChangeMessage({ file: 'styles.css', value: 'red' });
+    assert.ok(error);
+    assert.ok(error.includes('property'));
+  });
+
+  it('rejects messages with missing value field', () => {
+    const error = _validateChangeMessage({ file: 'styles.css', property: 'color' });
+    assert.ok(error);
+    assert.ok(error.includes('value'));
+  });
+
+  it('accepts valid change messages', () => {
+    const error = _validateChangeMessage({
+      file: 'styles.css',
+      property: 'color',
+      value: 'blue',
+      selector: '.card',
+    });
+    assert.equal(error, null);
   });
 });

@@ -368,6 +368,52 @@ describe('duplicate selectors with line hint', () => {
 
 // ── Integration Tests: Debounce ─────────────────────────────────────
 
+// ── Security Tests: Path Traversal Prevention ─────────────────────
+
+describe('path traversal prevention', () => {
+  it('rejects file paths with ../ that escape project root', () => {
+    writeFixture('styles.css', `.card {\n  color: red;\n}\n`);
+    const writer = createWriter(tmpDir);
+
+    assert.throws(
+      () => writer.applyChange({ file: '../outside.css', selector: '.card', property: 'color', value: 'blue' }),
+      { message: /Path traversal blocked/ }
+    );
+  });
+
+  it('rejects absolute paths outside project root', () => {
+    writeFixture('styles.css', `.card {\n  color: red;\n}\n`);
+    const writer = createWriter(tmpDir);
+
+    assert.throws(
+      () => writer.applyChange({ file: '/etc/passwd', selector: '.card', property: 'color', value: 'blue' }),
+      { message: /Path traversal blocked/ }
+    );
+  });
+
+  it('rejects nested traversal like subdir/../../outside.css', () => {
+    writeFixture('styles.css', `.card {\n  color: red;\n}\n`);
+    const writer = createWriter(tmpDir);
+
+    assert.throws(
+      () => writer.applyChange({ file: 'subdir/../../outside.css', selector: '.card', property: 'color', value: 'blue' }),
+      { message: /Path traversal blocked/ }
+    );
+  });
+
+  it('allows valid relative paths within project root', async () => {
+    writeFixture('styles.css', `.card {\n  color: red;\n}\n`);
+    const writer = createWriter(tmpDir);
+
+    // Should not throw
+    writer.applyChange({ file: 'styles.css', selector: '.card', property: 'color', value: 'blue' });
+    await writer.flushAll();
+
+    const content = readFixture(path.join(tmpDir, 'styles.css'));
+    assert.ok(content.includes('color: blue'));
+  });
+});
+
 describe('debounce', () => {
   it('multiple rapid writes result in a single file write with the final value', async () => {
     const filePath = writeFixture('styles.css', `.card {\n  color: red;\n}\n`);

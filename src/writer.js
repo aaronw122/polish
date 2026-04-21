@@ -513,6 +513,13 @@ export function createWriter(projectDir) {
     const { file, selector, property, value, line: lineHint, styleType } = message;
 
     const filePath = path.isAbsolute(file) ? file : path.resolve(projectDir, file);
+
+    // Path traversal guard: resolved path must stay under projectDir
+    const normalizedProject = projectDir.endsWith(path.sep) ? projectDir : projectDir + path.sep;
+    if (filePath !== projectDir && !filePath.startsWith(normalizedProject)) {
+      throw new Error(`Path traversal blocked: ${file} resolves outside project root`);
+    }
+
     const resolvedType = styleType || resolveWriteStrategy(file);
     const key = `${filePath}::${selector}::${property}`;
 
