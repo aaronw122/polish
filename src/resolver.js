@@ -140,10 +140,34 @@ function matchesSelector(element, selectorStr) {
 // ── CSS Rule Map ────────────────────────────────────────────────────
 
 /**
+ * Detect pseudo-class selectors in a selector string.
+ * Returns an array of pseudo-class names (e.g., [':hover', ':focus']).
+ */
+export function detectPseudoClasses(selectorStr) {
+  const pseudos = [];
+  // Match pseudo-classes (single colon) but not pseudo-elements (double colon)
+  const matches = selectorStr.match(/(?<!:):[a-zA-Z-]+/g);
+  if (matches) {
+    for (const m of matches) {
+      // Exclude :not() wrapper — it's a functional pseudo-class but not a state
+      if (m !== ':not') {
+        pseudos.push(m);
+      }
+    }
+  }
+  return [...new Set(pseudos)];
+}
+
+/**
  * Parse CSS source with PostCSS and extract all rules.
  * Returns an array of rule records.
+ *
+ * @param {string} cssContent - CSS text
+ * @param {string} filePath - Source file path
+ * @param {number} lineOffset - Line offset for rules inside HTML <style> blocks
+ * @param {number} fileIndex - Index for source-order tiebreaking across files
  */
-function parseCSSRules(cssContent, filePath, lineOffset = 0) {
+function parseCSSRules(cssContent, filePath, lineOffset = 0, fileIndex = 0) {
   const rules = [];
   let root;
 
@@ -154,23 +178,46 @@ function parseCSSRules(cssContent, filePath, lineOffset = 0) {
     return rules;
   }
 
+  let ruleIndex = 0;
+
   root.walkRules((rule) => {
     const properties = {};
+    const importantProps = {};
     rule.walkDecls((decl) => {
       properties[decl.prop] = decl.value;
+      if (decl.important) {
+        importantProps[decl.prop] = true;
+      }
     });
 
     const line = (rule.source?.start?.line || 1) + lineOffset;
     const selector = rule.selector;
 
-    // Handle comma-separated selectors — store one entry per selector group
-    // but keep the full selector for the record
+    // Detect the enclosing @media query, if any
+    let mediaQuery = null;
+    let parent = rule.parent;
+    while (parent) {
+      if (parent.type === 'atrule' && parent.name === 'media') {
+        mediaQuery = parent.params;
+        break;
+      }
+      parent = parent.parent;
+    }
+
+    // Detect pseudo-class selectors
+    const pseudoClasses = detectPseudoClasses(selector);
+
     rules.push({
       selector,
       file: filePath,
       line,
       specificity: calculateSpecificity(selector),
       properties,
+      importantProps,
+      mediaQuery,
+      pseudoClasses,
+      fileIndex,
+      ruleIndex: ruleIndex++,
     });
   });
 
@@ -292,6 +339,7 @@ export class Resolver {
     this.projectDir = path.resolve(projectDir);
     this.rules = [];
     this.inlineStyles = [];
+    this.cssFiles = [];
   }
 
   /**
@@ -300,15 +348,18 @@ export class Resolver {
   scan() {
     this.rules = [];
     this.inlineStyles = [];
+    this.cssFiles = [];
 
     const files = this._collectFiles(this.projectDir);
+    let fileIndex = 0;
 
     for (const filePath of files) {
       const ext = path.extname(filePath).toLowerCase();
       const content = fs.readFileSync(filePath, 'utf-8');
 
       if (ext === '.css') {
-        const rules = parseCSSRules(content, filePath);
+        this.cssFiles.push(filePath);
+        const rules = parseCSSRules(content, filePath, 0, fileIndex++);
         this.rules.push(...rules);
       } else if (ext === '.html' || ext === '.htm') {
         const { styleBlocks, inlineStyles, linkedStylesheets } = parseHTMLFile(
@@ -318,7 +369,7 @@ export class Resolver {
 
         // Parse <style> blocks
         for (const block of styleBlocks) {
-          const rules = parseCSSRules(block.content, block.file, block.startLine);
+          const rules = parseCSSRules(block.content, block.file, block.startLine, fileIndex++);
           this.rules.push(...rules);
         }
 
@@ -329,9 +380,12 @@ export class Resolver {
         for (const href of linkedStylesheets) {
           const cssPath = path.resolve(path.dirname(filePath), href);
           if (fs.existsSync(cssPath)) {
+            if (!this.cssFiles.includes(cssPath)) {
+              this.cssFiles.push(cssPath);
+            }
             try {
               const cssContent = fs.readFileSync(cssPath, 'utf-8');
-              const rules = parseCSSRules(cssContent, cssPath);
+              const rules = parseCSSRules(cssContent, cssPath, 0, fileIndex++);
               // Deduplicate — the CSS file might already be scanned directly
               const existing = new Set(this.rules.filter((r) => r.file === cssPath).map((r) => `${r.selector}:${r.line}`));
               for (const rule of rules) {
@@ -358,8 +412,11 @@ export class Resolver {
   /**
    * Resolve an element to its matching CSS rules and source locations.
    *
+   * Enhanced for M6: !important, media queries, overridden flags, source order,
+   * pseudo-class indicators, and no-match fallback with cssFiles.
+   *
    * @param {{ tag: string, id: string, classes: string[], inlineStyles: string }} elementInfo
-   * @returns {{ file, line, selector, properties, matchedRules }}
+   * @returns {{ file, line, selector, properties, matchedRules, cssFiles }}
    */
   resolve(elementInfo) {
     const { tag, id, classes, inlineStyles: inlineStyleStr } = elementInfo;
@@ -380,26 +437,63 @@ export class Resolver {
           line: rule.line,
           specificity: rule.specificity,
           properties: { ...rule.properties },
+          importantProps: { ...(rule.importantProps || {}) },
+          mediaQuery: rule.mediaQuery || null,
+          pseudoClasses: rule.pseudoClasses || [],
+          fileIndex: rule.fileIndex || 0,
+          ruleIndex: rule.ruleIndex || 0,
         });
       }
     }
 
-    // Sort by specificity (ascending) — last one wins (CSS cascade order)
-    matchedRules.sort((a, b) => compareSpecificity(a.specificity, b.specificity));
+    // Sort by specificity (ascending), then source order for equal specificity.
+    // Later files and later rules win for equal specificity (CSS cascade).
+    matchedRules.sort((a, b) => {
+      const specCmp = compareSpecificity(a.specificity, b.specificity);
+      if (specCmp !== 0) return specCmp;
+      // Source order: compare fileIndex then ruleIndex
+      if (a.fileIndex !== b.fileIndex) return a.fileIndex - b.fileIndex;
+      return a.ruleIndex - b.ruleIndex;
+    });
 
-    // Build computed properties from cascade
+    // Build computed properties from cascade, respecting !important
     const properties = {};
-    for (const rule of matchedRules) {
-      Object.assign(properties, rule.properties);
+    // Track which rule is the active winner for each property
+    const propertyWinner = {}; // prop -> index in matchedRules
+
+    for (let i = 0; i < matchedRules.length; i++) {
+      const rule = matchedRules[i];
+      for (const [prop, val] of Object.entries(rule.properties)) {
+        const isImportant = rule.importantProps[prop] || false;
+        const currentWinner = propertyWinner[prop];
+
+        if (currentWinner === undefined) {
+          // First rule to declare this property
+          properties[prop] = val;
+          propertyWinner[prop] = i;
+        } else {
+          const currentRule = matchedRules[currentWinner];
+          const currentIsImportant = currentRule.importantProps[prop] || false;
+
+          if (isImportant && !currentIsImportant) {
+            // !important always wins over non-important
+            properties[prop] = val;
+            propertyWinner[prop] = i;
+          } else if (!isImportant && currentIsImportant) {
+            // Non-important cannot override !important
+          } else {
+            // Same importance level: later in cascade wins (already sorted)
+            properties[prop] = val;
+            propertyWinner[prop] = i;
+          }
+        }
+      }
     }
 
-    // Handle inline styles — highest specificity
-    let inlineMatch = null;
+    // Handle inline styles — highest specificity (unless !important in CSS)
     if (inlineStyleStr) {
       const inlineProps = parseInlineStyles(inlineStyleStr);
       if (Object.keys(inlineProps).length > 0) {
-        Object.assign(properties, inlineProps);
-
         // Check if we have a recorded inline style entry from HTML scanning
         const recorded = this.inlineStyles.find(
           (is) =>
@@ -409,15 +503,58 @@ export class Resolver {
             is.classes.every((c) => element.classes.includes(c))
         );
 
-        inlineMatch = {
+        const inlineIdx = matchedRules.length;
+        const inlineMatch = {
           selector: '[inline]',
           file: recorded?.file || 'unknown',
           line: recorded?.line || 0,
           specificity: [1, 0, 0, 0],
           properties: inlineProps,
+          importantProps: {},
+          mediaQuery: null,
+          pseudoClasses: [],
+          fileIndex: Infinity,
+          ruleIndex: 0,
         };
         matchedRules.push(inlineMatch);
+
+        // Inline styles win over non-important CSS declarations
+        for (const [prop, val] of Object.entries(inlineProps)) {
+          const currentWinner = propertyWinner[prop];
+          if (currentWinner === undefined) {
+            properties[prop] = val;
+            propertyWinner[prop] = inlineIdx;
+          } else {
+            const currentRule = matchedRules[currentWinner];
+            const currentIsImportant = currentRule.importantProps[prop] || false;
+            if (currentIsImportant) {
+              // CSS !important beats inline styles
+            } else {
+              properties[prop] = val;
+              propertyWinner[prop] = inlineIdx;
+            }
+          }
+        }
       }
+    }
+
+    // Annotate each property in each matched rule with overridden status and important flag
+    for (let i = 0; i < matchedRules.length; i++) {
+      const rule = matchedRules[i];
+      const annotatedProps = {};
+      for (const [prop, val] of Object.entries(rule.properties)) {
+        annotatedProps[prop] = {
+          value: val,
+          important: rule.importantProps[prop] || false,
+          overridden: propertyWinner[prop] !== i,
+        };
+      }
+      rule.annotatedProperties = annotatedProps;
+
+      // Clean up internal fields not needed in the response
+      delete rule.importantProps;
+      delete rule.fileIndex;
+      delete rule.ruleIndex;
     }
 
     // Determine the primary source (highest specificity match)
@@ -429,6 +566,7 @@ export class Resolver {
       selector: primary?.selector || null,
       properties,
       matchedRules,
+      cssFiles: this.cssFiles,
     };
   }
 

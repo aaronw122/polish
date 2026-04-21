@@ -11,9 +11,10 @@
   let selectedElement = null;
   let ws = null;
   let reconnectTimer = null;
-  let sourceData = null;       // { file, selector, line, properties }
+  let sourceData = null;       // { file, selector, line, properties, cssFiles, matchedRules }
   let panelVisible = false;
   let debounceTimers = {};
+  let shortcutHintShown = false;
   const DEBOUNCE_MS = 150;
 
   // ── Shadow DOM Container ───────────────────────────────────────────
@@ -389,6 +390,11 @@
   lockLabel.textContent = 'Uniform';
   lockRow.appendChild(lockLabel);
   spacingContainer.appendChild(lockRow);
+
+  // Shorthand indicator badges for margin/padding
+  const shorthandBadgesContainer = document.createElement('div');
+  shorthandBadgesContainer.className = 'polish-shorthand-badges';
+  spacingContainer.appendChild(shorthandBadgesContainer);
 
   spacingSection.content.appendChild(spacingContainer);
   panelBody.appendChild(spacingSection.section);
@@ -975,6 +981,85 @@
       font-size: 10px;
       color: #777;
     }
+
+    /* ── Breadcrumbs ──────────────────────────────────────────────── */
+
+    .polish-breadcrumb {
+      font-size: 9px;
+      color: #888;
+      letter-spacing: 0.3px;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+      max-width: 300px;
+      margin-bottom: 2px;
+    }
+
+    /* ── Pseudo-class Badges ──────────────────────────────────────── */
+
+    .polish-pseudo-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 4px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .polish-pseudo-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.25);
+    }
+
+    /* ── Shorthand Badges ─────────────────────────────────────────── */
+
+    .polish-shorthand-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-height: 0;
+    }
+
+    .polish-shorthand-badge {
+      display: inline-block;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      background: rgba(59, 130, 246, 0.12);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    /* ── Keyboard Shortcut Hint ───────────────────────────────────── */
+
+    .polish-shortcut-hint {
+      position: fixed;
+      bottom: 40px;
+      right: 12px;
+      background: rgba(15, 15, 15, 0.92);
+      color: #ccc;
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+      font-size: 10px;
+      line-height: 1.6;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(8px);
+      z-index: 4;
+      pointer-events: none;
+      transition: opacity 0.5s ease;
+    }
+
+    .polish-shortcut-hint strong {
+      color: #fff;
+    }
   `;
   shadow.appendChild(style);
 
@@ -1040,12 +1125,39 @@
     infoPanel.style.left = left + 'px';
   }
 
+  /**
+   * Build a breadcrumb hierarchy string for an element.
+   * e.g., "div.container > section.card > h2"
+   */
+  function buildBreadcrumbs(el) {
+    const parts = [];
+    let node = el;
+    while (node && node !== document.body && node !== document.documentElement) {
+      const { tag, id, classes } = describeElement(node);
+      let label = tag;
+      if (id) label += '#' + id;
+      if (classes.length) label += '.' + classes.slice(0, 2).join('.');
+      if (classes.length > 2) label += '...';
+      parts.unshift(label);
+      if (parts.length >= 4) {
+        parts.unshift('...');
+        break;
+      }
+      node = node.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
   function buildInfoHTML(el) {
     const { tag, id, classes } = describeElement(el);
     const rect = el.getBoundingClientRect();
     const computed = window.getComputedStyle(el);
 
-    let html = `<span class="tag">&lt;${tag}&gt;</span>`;
+    // Element hierarchy breadcrumbs
+    const breadcrumb = buildBreadcrumbs(el);
+    let html = `<span class="polish-breadcrumb">${breadcrumb}</span><br>`;
+
+    html += `<span class="tag">&lt;${tag}&gt;</span>`;
     if (id) html += `<span class="sep">|</span><span class="id">#${id}</span>`;
     if (classes.length) html += `<span class="sep">|</span><span class="cls">.${classes.join('.')}</span>`;
     html += `<br><span class="dim">${Math.round(rect.width)} \u00D7 ${Math.round(rect.height)}px</span>`;
@@ -1090,30 +1202,46 @@
     const panelWidth = 280;
     const panelHeight = Math.min(panel.offsetHeight || 400, window.innerHeight * 0.8);
     const gap = 12;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
 
     let left, top;
 
-    // Prefer right side if there's room
-    if (elRect.right + gap + panelWidth <= window.innerWidth) {
-      left = elRect.right + gap;
-    }
-    // Try left side
-    else if (elRect.left - gap - panelWidth >= 0) {
-      left = elRect.left - gap - panelWidth;
-    }
-    // Fall back to right edge of viewport
-    else {
-      left = window.innerWidth - panelWidth - 8;
+    // Check if element takes most of the viewport (large element)
+    const elCoversViewport = (
+      elRect.width > vw * 0.7 && elRect.height > vh * 0.7
+    );
+
+    if (elCoversViewport) {
+      // Position panel in fixed top-right corner for very large elements
+      left = vw - panelWidth - 12;
+      top = 12;
+    } else {
+      // Prefer right side if there's room
+      if (elRect.right + gap + panelWidth <= vw) {
+        left = elRect.right + gap;
+      }
+      // Try left side
+      else if (elRect.left - gap - panelWidth >= 0) {
+        left = elRect.left - gap - panelWidth;
+      }
+      // Fall back to right edge of viewport
+      else {
+        left = vw - panelWidth - 8;
+      }
+
+      // Vertically align to the top of the element
+      top = elRect.top;
     }
 
-    // Vertically align to the top of the element
-    top = elRect.top;
-
-    // Keep panel on screen
-    if (top + panelHeight > window.innerHeight) {
-      top = window.innerHeight - panelHeight - 8;
+    // Keep panel fully on screen
+    if (top + panelHeight > vh) {
+      top = vh - panelHeight - 8;
     }
     if (top < 8) top = 8;
+    if (left + panelWidth > vw) {
+      left = vw - panelWidth - 8;
+    }
     if (left < 8) left = 8;
 
     panel.style.left = left + 'px';
@@ -1270,13 +1398,14 @@
   }
 
   function sendChangeMessage(property, value) {
-    if (!sourceData) return;
+    if (!sourceData || !sourceData.selector) return;
     sendMessage({
       type: 'change',
       file: sourceData.file,
       selector: sourceData.selector,
       property: property,
       value: value,
+      line: sourceData.line || undefined,
     });
   }
 
@@ -1407,6 +1536,55 @@
       e.preventDefault();
       deselectElement();
     }
+
+    // Tab / Shift+Tab: cycle to sibling elements
+    if (active && selectedElement && e.key === 'Tab') {
+      e.preventDefault();
+      e.stopPropagation();
+      const parent = selectedElement.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(
+          (c) => !isPolishElement(c) && c.nodeType === 1
+        );
+        const currentIdx = siblings.indexOf(selectedElement);
+        if (currentIdx !== -1) {
+          let nextIdx;
+          if (e.shiftKey) {
+            nextIdx = (currentIdx - 1 + siblings.length) % siblings.length;
+          } else {
+            nextIdx = (currentIdx + 1) % siblings.length;
+          }
+          selectElement(siblings[nextIdx]);
+        }
+      }
+    }
+  }
+
+  // Keyboard shortcut hint element
+  const shortcutHint = document.createElement('div');
+  shortcutHint.className = 'polish-shortcut-hint';
+  const isMacHint = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  shortcutHint.innerHTML = [
+    '<strong>Shortcuts:</strong>',
+    (isMacHint ? 'Cmd' : 'Ctrl') + '+Shift+P — Toggle overlay',
+    'Click — Select element',
+    'Esc — Deselect',
+    'Tab / Shift+Tab — Cycle siblings',
+  ].join('<br>');
+  shortcutHint.style.display = 'none';
+  shadow.appendChild(shortcutHint);
+
+  function showShortcutHint() {
+    if (shortcutHintShown) return;
+    shortcutHintShown = true;
+    shortcutHint.style.display = 'block';
+    setTimeout(() => {
+      shortcutHint.style.opacity = '0';
+      setTimeout(() => {
+        shortcutHint.style.display = 'none';
+        shortcutHint.style.opacity = '';
+      }, 500);
+    }, 4000);
   }
 
   function toggleOverlay() {
@@ -1415,6 +1593,7 @@
     if (active) {
       badge.className = 'polish-badge active';
       badge.textContent = 'Polish';
+      showShortcutHint();
     } else {
       badge.className = 'polish-badge inactive';
       badge.textContent = 'Polish';
@@ -1478,19 +1657,51 @@
 
   function handleServerMessage(message) {
     switch (message.type) {
-      case 'source':
-        // Store source resolution data for change messages
+      case 'source': {
+        const matchedRules = message.matchedRules || [];
+        const cssFiles = message.cssFiles || [];
+
+        // If no rules match and no selector, build a fallback source target
+        // The panel will still work with getComputedStyle values. When the user
+        // makes a change, we write a new rule to the first CSS file (or create one).
+        let file = message.file;
+        let selector = message.selector;
+        if (!selector && selectedElement) {
+          // Build a reasonable selector for creating a new rule
+          const desc = describeElement(selectedElement);
+          if (desc.id) {
+            selector = '#' + desc.id;
+          } else if (desc.classes.length) {
+            selector = '.' + desc.classes.join('.');
+          } else {
+            selector = desc.tag;
+          }
+          // Target the first CSS file, or a fallback
+          file = cssFiles[0] || 'polish-overrides.css';
+        }
+
         sourceData = {
-          file: message.file,
-          selector: message.selector,
+          file: file,
+          selector: selector,
           line: message.line,
           properties: message.properties || {},
+          cssFiles: cssFiles,
+          matchedRules: matchedRules,
         };
+
         // Re-initialize panel values from source properties if available
         if (selectedElement && message.properties) {
           updatePanelFromSource(message.properties);
         }
+
+        // Update shorthand badges
+        updateShorthandBadges(matchedRules);
+
+        // Update pseudo-class indicators
+        updatePseudoClassIndicators(matchedRules);
+
         break;
+      }
 
       case 'reload':
         if (message.cssOnly && message.files) {
@@ -1499,6 +1710,61 @@
           location.reload();
         }
         break;
+    }
+  }
+
+  /**
+   * Update shorthand badges in the spacing section based on matched rules.
+   * When a rule uses a shorthand (padding, margin), show a badge next to the controls.
+   */
+  function updateShorthandBadges(matchedRules) {
+    shorthandBadgesContainer.innerHTML = '';
+    const shorthandProps = new Set();
+
+    for (const rule of matchedRules) {
+      const props = rule.properties || {};
+      if (props['padding']) shorthandProps.add('padding');
+      if (props['margin']) shorthandProps.add('margin');
+    }
+
+    for (const prop of shorthandProps) {
+      const badge = document.createElement('span');
+      badge.className = 'polish-shorthand-badge';
+      badge.textContent = prop + ' (shorthand)';
+      badge.title = 'This value was expanded from a shorthand declaration';
+      shorthandBadgesContainer.appendChild(badge);
+    }
+  }
+
+  /**
+   * Update pseudo-class indicators in the panel header area.
+   * Shows badges like "Has :hover styles" when matched rules contain pseudo-class selectors.
+   */
+  function updatePseudoClassIndicators(matchedRules) {
+    // Remove existing pseudo badges
+    const existing = panel.querySelectorAll('.polish-pseudo-badge');
+    existing.forEach((b) => b.remove());
+
+    const pseudos = new Set();
+    for (const rule of matchedRules) {
+      if (rule.pseudoClasses && rule.pseudoClasses.length > 0) {
+        for (const pc of rule.pseudoClasses) {
+          pseudos.add(pc);
+        }
+      }
+    }
+
+    if (pseudos.size > 0) {
+      const container = document.createElement('div');
+      container.className = 'polish-pseudo-badges';
+      for (const pc of pseudos) {
+        const badge = document.createElement('span');
+        badge.className = 'polish-pseudo-badge';
+        badge.textContent = 'Has ' + pc + ' styles';
+        container.appendChild(badge);
+      }
+      // Insert after the panel header
+      panelHeader.insertAdjacentElement('afterend', container);
     }
   }
 
@@ -1606,6 +1872,9 @@
     document.addEventListener('mouseup', onPanelDragEnd, true);
 
     connectWebSocket();
+
+    // Show shortcut hint on first activation
+    showShortcutHint();
   }
 
   if (document.readyState === 'loading') {

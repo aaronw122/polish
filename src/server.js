@@ -56,6 +56,7 @@ export function createWebSocketServer(httpServer, config) {
               selector: result.selector,
               properties: result.properties,
               matchedRules: result.matchedRules,
+              cssFiles: result.cssFiles || [],
             })
           );
         }

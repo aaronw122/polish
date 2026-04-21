@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { Resolver, calculateSpecificity, compareSpecificity, createResolver } from '../src/resolver.js';
+import { Resolver, calculateSpecificity, compareSpecificity, createResolver, detectPseudoClasses } from '../src/resolver.js';
 
 // ── Helper: create a temp project directory with files ──────────────
 
@@ -419,6 +419,361 @@ describe('Skipping directories', () => {
     const resolver = createResolver(dir);
     assert.equal(resolver.rules.length, 1);
     assert.equal(resolver.rules[0].selector, '.app');
+
+    cleanupDir(dir);
+  });
+});
+
+// ── M6 Tests: !important handling ──────────────────────────────────
+
+describe('!important handling', () => {
+  it('!important declaration overrides higher specificity', () => {
+    const dir = createTempProject({
+      'styles.css': `
+.card { color: blue !important; }
+#main { color: red; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: 'main',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // .card has !important on color, so it wins despite #main having higher specificity
+    assert.equal(result.properties.color, 'blue');
+
+    // Check annotated properties show important flag
+    const cardRule = result.matchedRules.find((r) => r.selector === '.card');
+    assert.ok(cardRule);
+    assert.equal(cardRule.annotatedProperties.color.important, true);
+    assert.equal(cardRule.annotatedProperties.color.overridden, false);
+
+    const mainRule = result.matchedRules.find((r) => r.selector === '#main');
+    assert.ok(mainRule);
+    assert.equal(mainRule.annotatedProperties.color.important, false);
+    assert.equal(mainRule.annotatedProperties.color.overridden, true);
+
+    cleanupDir(dir);
+  });
+
+  it('!important in CSS beats inline styles', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { color: blue !important; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: 'color: red;',
+    });
+
+    // CSS !important beats inline styles
+    assert.equal(result.properties.color, 'blue');
+
+    cleanupDir(dir);
+  });
+
+  it('non-important properties still use normal cascade order', () => {
+    const dir = createTempProject({
+      'styles.css': `
+.card { color: blue !important; font-size: 14px; }
+#main { color: red; font-size: 20px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: 'main',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // color: !important wins for .card
+    assert.equal(result.properties.color, 'blue');
+    // font-size: #main wins by specificity (no !important involved)
+    assert.equal(result.properties['font-size'], '20px');
+
+    cleanupDir(dir);
+  });
+});
+
+// ── M6 Tests: Media queries ────────────────────────────────────────
+
+describe('Media queries', () => {
+  it('includes media query condition in matched rule', () => {
+    const dir = createTempProject({
+      'styles.css': `
+.card { padding: 16px; }
+@media (max-width: 768px) {
+  .card { padding: 8px; }
+}`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // Should have 2 matched rules
+    assert.equal(result.matchedRules.length, 2);
+
+    // One without media query
+    const normalRule = result.matchedRules.find((r) => r.mediaQuery === null);
+    assert.ok(normalRule);
+    assert.equal(normalRule.annotatedProperties.padding.value, '16px');
+
+    // One with media query
+    const mediaRule = result.matchedRules.find((r) => r.mediaQuery !== null);
+    assert.ok(mediaRule);
+    assert.equal(mediaRule.mediaQuery, '(max-width: 768px)');
+    assert.equal(mediaRule.annotatedProperties.padding.value, '8px');
+
+    cleanupDir(dir);
+  });
+
+  it('includes all matching rules regardless of media query', () => {
+    const dir = createTempProject({
+      'styles.css': `
+.card { color: red; }
+@media (min-width: 1024px) {
+  .card { color: blue; }
+}
+@media print {
+  .card { color: black; }
+}`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.matchedRules.length, 3);
+
+    const mediaQueries = result.matchedRules.map((r) => r.mediaQuery);
+    assert.ok(mediaQueries.includes(null));
+    assert.ok(mediaQueries.includes('(min-width: 1024px)'));
+    assert.ok(mediaQueries.includes('print'));
+
+    cleanupDir(dir);
+  });
+});
+
+// ── M6 Tests: Overridden properties ────────────────────────────────
+
+describe('Overridden properties', () => {
+  it('marks overridden properties correctly in multi-rule cascade', () => {
+    const dir = createTempProject({
+      'styles.css': `
+div { color: green; padding: 10px; }
+.card { color: blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.matchedRules.length, 2);
+
+    // div rule: color is overridden by .card, padding is not overridden
+    const divRule = result.matchedRules.find((r) => r.selector === 'div');
+    assert.ok(divRule);
+    assert.equal(divRule.annotatedProperties.color.overridden, true);
+    assert.equal(divRule.annotatedProperties.padding.overridden, false);
+
+    // .card rule: color is the winner
+    const cardRule = result.matchedRules.find((r) => r.selector === '.card');
+    assert.ok(cardRule);
+    assert.equal(cardRule.annotatedProperties.color.overridden, false);
+
+    cleanupDir(dir);
+  });
+
+  it('source order tiebreaks equal specificity', () => {
+    const dir = createTempProject({
+      'styles.css': `
+.card { color: red; }
+.card { color: blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // The second .card rule wins by source order
+    assert.equal(result.properties.color, 'blue');
+
+    // First .card rule's color should be overridden
+    const rules = result.matchedRules.filter((r) => r.selector === '.card');
+    assert.equal(rules.length, 2);
+    assert.equal(rules[0].annotatedProperties.color.overridden, true);
+    assert.equal(rules[1].annotatedProperties.color.overridden, false);
+
+    cleanupDir(dir);
+  });
+
+  it('multiple CSS files: later file wins for equal specificity', () => {
+    const dir = createTempProject({
+      'a.css': `.card { color: red; }`,
+      'b.css': `.card { color: blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // b.css comes after a.css alphabetically; both have same specificity
+    // The one with higher fileIndex wins
+    assert.equal(result.matchedRules.length, 2);
+    // One rule's color is overridden, the other is active
+    const overriddenCount = result.matchedRules.filter(
+      (r) => r.annotatedProperties.color?.overridden
+    ).length;
+    assert.equal(overriddenCount, 1);
+
+    cleanupDir(dir);
+  });
+});
+
+// ── M6 Tests: No-match case ────────────────────────────────────────
+
+describe('No-match case', () => {
+  it('returns empty matchedRules and null file when no rules match', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { padding: 16px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'span',
+      id: '',
+      classes: ['unknown'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.file, null);
+    assert.equal(result.line, 0);
+    assert.equal(result.selector, null);
+    assert.deepEqual(result.properties, {});
+    assert.equal(result.matchedRules.length, 0);
+
+    cleanupDir(dir);
+  });
+
+  it('provides cssFiles list even when no rules match', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { padding: 16px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'span',
+      id: '',
+      classes: ['unknown'],
+      inlineStyles: '',
+    });
+
+    assert.ok(Array.isArray(result.cssFiles));
+    assert.ok(result.cssFiles.length >= 1);
+    assert.ok(result.cssFiles[0].endsWith('styles.css'));
+
+    cleanupDir(dir);
+  });
+});
+
+// ── M6 Tests: Pseudo-class detection ───────────────────────────────
+
+describe('detectPseudoClasses', () => {
+  it('detects :hover', () => {
+    const result = detectPseudoClasses('a:hover');
+    assert.deepEqual(result, [':hover']);
+  });
+
+  it('detects multiple pseudo-classes', () => {
+    const result = detectPseudoClasses('.btn:hover:focus');
+    assert.ok(result.includes(':hover'));
+    assert.ok(result.includes(':focus'));
+  });
+
+  it('returns empty array for selectors without pseudo-classes', () => {
+    const result = detectPseudoClasses('.card');
+    assert.deepEqual(result, []);
+  });
+
+  it('does not include :not as a pseudo-class', () => {
+    const result = detectPseudoClasses('.card:not(.active)');
+    assert.ok(!result.includes(':not'));
+  });
+
+  it('does not detect pseudo-elements as pseudo-classes', () => {
+    const result = detectPseudoClasses('p::before');
+    assert.deepEqual(result, []);
+  });
+
+  it('detects :active', () => {
+    const result = detectPseudoClasses('button:active');
+    assert.deepEqual(result, [':active']);
+  });
+});
+
+describe('Pseudo-classes in resolved rules', () => {
+  it('includes pseudo-class info in matched rules', () => {
+    const dir = createTempProject({
+      'styles.css': `
+.btn { color: blue; }
+.btn:hover { color: red; }
+.btn:focus { outline: 2px solid blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'button',
+      id: '',
+      classes: ['btn'],
+      inlineStyles: '',
+    });
+
+    // All 3 rules match (key selector is .btn in each case)
+    assert.equal(result.matchedRules.length, 3);
+
+    const hoverRule = result.matchedRules.find(
+      (r) => r.pseudoClasses && r.pseudoClasses.includes(':hover')
+    );
+    assert.ok(hoverRule);
+    assert.equal(hoverRule.selector, '.btn:hover');
+
+    const focusRule = result.matchedRules.find(
+      (r) => r.pseudoClasses && r.pseudoClasses.includes(':focus')
+    );
+    assert.ok(focusRule);
+
+    const normalRule = result.matchedRules.find(
+      (r) => r.pseudoClasses && r.pseudoClasses.length === 0
+    );
+    assert.ok(normalRule);
 
     cleanupDir(dir);
   });
