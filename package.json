@@ -6,6 +6,11 @@
     "polish": "./bin/polish"
   },
   "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "build:watch": "vite build --watch",
+    "prepublishOnly": "vite build"
+  },
   "dependencies": {
     "commander": "latest",
     "http-proxy": "latest",
@@ -13,5 +18,10 @@
     "postcss": "latest",
     "htmlparser2": "latest",
     "chokidar": "latest"
+  },
+  "devDependencies": {
+    "svelte": "^4.2.19",
+    "vite": "^6.3.3",
+    "@sveltejs/vite-plugin-svelte": "^3.1.2"
   }
 }

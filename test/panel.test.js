@@ -1,17 +1,28 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-// ── Unit-testable logic extracted from overlay.js ───────────────────
-// Since overlay.js is a browser IIFE running in Shadow DOM, we test the
-// pure logic functions in isolation: value parsing, clamping, color
-// conversion, debounce behavior, message generation, and panel positioning.
+// ── Import pure logic from the Svelte overlay modules ─────────────
+import {
+  clampValue,
+  rgbToHex,
+  parseNumericValue,
+  cssToCamel,
+  computePanelPosition,
+  formatSpacingValue,
+  buildChangeMessage,
+  DEBOUNCE_MS,
+} from '../src/overlay/lib/utils.js';
 
-// ── clampValue ──────────────────────────────────────────────────────
+import {
+  CONTROL_SCHEMA,
+  WEB_SAFE_FONTS,
+  FONT_WEIGHTS,
+  SPACING_PROPS,
+} from '../src/overlay/lib/schema.js';
 
-function clampValue(val, min, max) {
-  if (isNaN(val)) return min;
-  return Math.min(max, Math.max(min, val));
-}
+// ═══════════════════════════════════════════════════════════════════
+// clampValue
+// ═══════════════════════════════════════════════════════════════════
 
 describe('clampValue', () => {
   it('returns the value when within range', () => {
@@ -42,18 +53,9 @@ describe('clampValue', () => {
   });
 });
 
-// ── rgbToHex ────────────────────────────────────────────────────────
-
-function rgbToHex(rgb) {
-  if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return '#000000';
-  if (rgb.startsWith('#')) return rgb.length === 7 ? rgb : rgb;
-  const match = rgb.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-  if (!match) return '#000000';
-  const r = parseInt(match[1], 10);
-  const g = parseInt(match[2], 10);
-  const b = parseInt(match[3], 10);
-  return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
-}
+// ═══════════════════════════════════════════════════════════════════
+// rgbToHex
+// ═══════════════════════════════════════════════════════════════════
 
 describe('rgbToHex', () => {
   it('converts rgb() to hex', () => {
@@ -90,14 +92,9 @@ describe('rgbToHex', () => {
   });
 });
 
-// ── parseNumericValue ───────────────────────────────────────────────
-
-function parseNumericValue(val) {
-  if (!val || val === 'auto' || val === 'none') return { num: 0, unit: 'px' };
-  const match = String(val).match(/^(-?[\d.]+)\s*(px|rem|em|%|vw|vh)?$/);
-  if (!match) return { num: 0, unit: 'px' };
-  return { num: parseFloat(match[1]), unit: match[2] || 'px' };
-}
+// ═══════════════════════════════════════════════════════════════════
+// parseNumericValue
+// ═══════════════════════════════════════════════════════════════════
 
 describe('parseNumericValue', () => {
   it('parses px values', () => {
@@ -152,18 +149,9 @@ describe('parseNumericValue', () => {
   });
 });
 
-// ── Change message generation ───────────────────────────────────────
-
-function buildChangeMessage(sourceData, property, value) {
-  if (!sourceData) return null;
-  return {
-    type: 'change',
-    file: sourceData.file,
-    selector: sourceData.selector,
-    property: property,
-    value: value,
-  };
-}
+// ═══════════════════════════════════════════════════════════════════
+// buildChangeMessage
+// ═══════════════════════════════════════════════════════════════════
 
 describe('buildChangeMessage', () => {
   const mockSource = {
@@ -181,12 +169,17 @@ describe('buildChangeMessage', () => {
       selector: '.card',
       property: 'padding-left',
       value: '24px',
+      line: 10,
     });
   });
 
   it('returns null when source data is missing', () => {
     assert.equal(buildChangeMessage(null, 'color', '#fff'), null);
     assert.equal(buildChangeMessage(undefined, 'color', '#fff'), null);
+  });
+
+  it('returns null when source data has no selector', () => {
+    assert.equal(buildChangeMessage({ file: 'a.css' }, 'color', '#fff'), null);
   });
 
   it('handles various property types', () => {
@@ -216,7 +209,9 @@ describe('buildChangeMessage', () => {
   });
 });
 
-// ── Debounce behavior ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Debounce behavior
+// ═══════════════════════════════════════════════════════════════════
 
 describe('debounce behavior', () => {
   it('debounce delays execution', async () => {
@@ -233,18 +228,14 @@ describe('debounce behavior', () => {
       }, delay);
     }
 
-    // Fire rapidly
     debounceSend('color', '#111', 50);
     debounceSend('color', '#222', 50);
     debounceSend('color', '#333', 50);
 
-    // Not yet called
     assert.equal(callCount, 0);
 
-    // Wait for debounce
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Only called once with the last value
     assert.equal(callCount, 1);
     assert.equal(lastValue, '#333');
   });
@@ -276,7 +267,6 @@ describe('debounce behavior', () => {
 
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Debounce was cancelled, immediate ran
     assert.equal(debounceCount, 0);
     assert.equal(immediateCount, 1);
   });
@@ -304,38 +294,9 @@ describe('debounce behavior', () => {
   });
 });
 
-// ── Panel positioning ───────────────────────────────────────────────
-
-function computePanelPosition(elRect, viewportWidth, viewportHeight) {
-  const panelWidth = 280;
-  const panelHeight = 400;
-  const gap = 12;
-
-  let left, top;
-
-  // Prefer right side
-  if (elRect.right + gap + panelWidth <= viewportWidth) {
-    left = elRect.right + gap;
-  }
-  // Try left side
-  else if (elRect.left - gap - panelWidth >= 0) {
-    left = elRect.left - gap - panelWidth;
-  }
-  // Fall back to right edge
-  else {
-    left = viewportWidth - panelWidth - 8;
-  }
-
-  top = elRect.top;
-
-  if (top + panelHeight > viewportHeight) {
-    top = viewportHeight - panelHeight - 8;
-  }
-  if (top < 8) top = 8;
-  if (left < 8) left = 8;
-
-  return { left, top };
-}
+// ═══════════════════════════════════════════════════════════════════
+// Panel positioning
+// ═══════════════════════════════════════════════════════════════════
 
 describe('panel positioning', () => {
   it('positions to the right of element when space allows', () => {
@@ -348,8 +309,6 @@ describe('panel positioning', () => {
   it('positions to the left when no room on right', () => {
     const elRect = { top: 100, left: 500, right: 800, bottom: 200, width: 300, height: 100 };
     const pos = computePanelPosition(elRect, 900, 768);
-    // right side: 800 + 12 + 280 = 1092 > 900, so try left
-    // left side: 500 - 12 - 280 = 208
     assert.equal(pos.left, 208);
     assert.equal(pos.top, 100);
   });
@@ -357,14 +316,12 @@ describe('panel positioning', () => {
   it('falls back to viewport edge when no room on either side', () => {
     const elRect = { top: 100, left: 0, right: 500, bottom: 200, width: 500, height: 100 };
     const pos = computePanelPosition(elRect, 500, 768);
-    // right: 500 + 12 + 280 > 500, left: 0 - 12 - 280 < 0
     assert.equal(pos.left, 500 - 280 - 8);
   });
 
   it('keeps panel on screen vertically', () => {
     const elRect = { top: 700, left: 50, right: 200, bottom: 750, width: 150, height: 50 };
     const pos = computePanelPosition(elRect, 1024, 768);
-    // top = 700, 700 + 400 = 1100 > 768
     assert.equal(pos.top, 768 - 400 - 8);
   });
 
@@ -377,16 +334,20 @@ describe('panel positioning', () => {
   it('clamps left to minimum', () => {
     const elRect = { top: 100, left: -200, right: 100, bottom: 200, width: 300, height: 100 };
     const pos = computePanelPosition(elRect, 400, 768);
-    // right: 100 + 12 + 280 = 392 <= 400, so right
     assert.equal(pos.left, 100 + 12);
+  });
+
+  it('handles large elements covering the viewport', () => {
+    const elRect = { top: 0, left: 0, right: 1024, bottom: 768, width: 1024, height: 768 };
+    const pos = computePanelPosition(elRect, 1024, 768);
+    assert.equal(pos.left, 1024 - 280 - 12);
+    assert.equal(pos.top, 12);
   });
 });
 
-// ── CSS property to camelCase conversion ────────────────────────────
-
-function cssToCamel(property) {
-  return property.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-}
+// ═══════════════════════════════════════════════════════════════════
+// CSS property to camelCase conversion
+// ═══════════════════════════════════════════════════════════════════
 
 describe('CSS property to camelCase', () => {
   it('converts hyphenated properties to camelCase', () => {
@@ -403,7 +364,9 @@ describe('CSS property to camelCase', () => {
   });
 });
 
-// ── Source message handling ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Source message handling
+// ═══════════════════════════════════════════════════════════════════
 
 describe('source message handling', () => {
   function handleSourceMessage(message) {
@@ -449,7 +412,9 @@ describe('source message handling', () => {
   });
 });
 
-// ── Slider value validation ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Slider value ranges (from CONTROL_SCHEMA)
+// ═══════════════════════════════════════════════════════════════════
 
 describe('slider value ranges', () => {
   const SLIDER_RANGES = {
@@ -472,22 +437,16 @@ describe('slider value ranges', () => {
   }
 
   it('opacity slider step precision', () => {
-    const val = clampValue(0.01, 0, 1);
-    assert.equal(val, 0.01);
-    const val2 = clampValue(0.99, 0, 1);
-    assert.equal(val2, 0.99);
+    assert.equal(clampValue(0.01, 0, 1), 0.01);
+    assert.equal(clampValue(0.99, 0, 1), 0.99);
   });
 });
 
-// ── Box model spacing value formatting ──────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// Box model spacing value formatting
+// ═══════════════════════════════════════════════════════════════════
 
 describe('spacing value formatting', () => {
-  function formatSpacingValue(rawInput) {
-    const val = rawInput.trim();
-    if (/\d$/.test(val)) return val + 'px';
-    return val;
-  }
-
   it('appends px to bare numbers', () => {
     assert.equal(formatSpacingValue('10'), '10px');
     assert.equal(formatSpacingValue('0'), '0px');
@@ -503,5 +462,85 @@ describe('spacing value formatting', () => {
   it('handles whitespace', () => {
     assert.equal(formatSpacingValue('  10  '), '10px');
     assert.equal(formatSpacingValue(' 10px '), '10px');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTROL_SCHEMA structure validation
+// ═══════════════════════════════════════════════════════════════════
+
+describe('CONTROL_SCHEMA', () => {
+  it('has the expected sections', () => {
+    const sectionIds = CONTROL_SCHEMA.map(s => s.id);
+    assert.deepEqual(sectionIds, ['colors', 'typography', 'size', 'effects']);
+  });
+
+  it('every control has required fields', () => {
+    for (const section of CONTROL_SCHEMA) {
+      for (const control of section.controls) {
+        assert.ok(control.property, `Missing property in ${section.id}`);
+        assert.ok(control.type, `Missing type for ${control.property}`);
+        assert.ok(control.label, `Missing label for ${control.property}`);
+        assert.ok(['color', 'slider', 'select'].includes(control.type),
+          `Invalid type '${control.type}' for ${control.property}`);
+      }
+    }
+  });
+
+  it('slider controls have min/max/step', () => {
+    for (const section of CONTROL_SCHEMA) {
+      for (const control of section.controls) {
+        if (control.type === 'slider') {
+          assert.ok(typeof control.min === 'number', `Missing min for ${control.property}`);
+          assert.ok(typeof control.max === 'number', `Missing max for ${control.property}`);
+          assert.ok(typeof control.step === 'number', `Missing step for ${control.property}`);
+        }
+      }
+    }
+  });
+
+  it('select controls have options array', () => {
+    for (const section of CONTROL_SCHEMA) {
+      for (const control of section.controls) {
+        if (control.type === 'select') {
+          assert.ok(Array.isArray(control.options), `Missing options for ${control.property}`);
+          assert.ok(control.options.length > 0, `Empty options for ${control.property}`);
+        }
+      }
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SPACING_PROPS
+// ═══════════════════════════════════════════════════════════════════
+
+describe('SPACING_PROPS', () => {
+  it('has all 8 margin/padding sides', () => {
+    assert.equal(SPACING_PROPS.length, 8);
+    assert.ok(SPACING_PROPS.includes('margin-top'));
+    assert.ok(SPACING_PROPS.includes('padding-bottom'));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════════
+
+describe('constants', () => {
+  it('DEBOUNCE_MS is 150ms', () => {
+    assert.equal(DEBOUNCE_MS, 150);
+  });
+
+  it('WEB_SAFE_FONTS has expected fonts', () => {
+    assert.ok(WEB_SAFE_FONTS.includes('Arial'));
+    assert.ok(WEB_SAFE_FONTS.includes('monospace'));
+    assert.ok(WEB_SAFE_FONTS.length >= 10);
+  });
+
+  it('FONT_WEIGHTS covers standard range', () => {
+    assert.equal(FONT_WEIGHTS.length, 9);
+    assert.equal(FONT_WEIGHTS[0].value, '100');
+    assert.equal(FONT_WEIGHTS[8].value, '900');
   });
 });

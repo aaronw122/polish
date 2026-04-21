@@ -9,9 +9,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const POLISH_PREFIX = '/__polish__/';
 
-const OVERLAY_JS_PATH = path.join(__dirname, 'overlay', 'overlay.js');
+// Svelte bundle — all JS + CSS compiled into a single IIFE
+const OVERLAY_JS_PATH = path.join(__dirname, '..', 'dist', 'overlay.js');
 const OVERLAY_CSS_PATH = path.join(__dirname, 'overlay', 'overlay.css');
-const PANEL_STYLES_PATH = path.join(__dirname, 'overlay', 'panel-styles.css');
 
 const INJECT_SCRIPT = `<script src="${POLISH_PREFIX}overlay.js"></script>
 <link rel="stylesheet" href="${POLISH_PREFIX}overlay.css">
@@ -23,11 +23,8 @@ function servePolishAsset(req, res) {
   const urlPath = req.url.split('?')[0];
 
   if (urlPath === `${POLISH_PREFIX}overlay.js`) {
-    let content = fs.readFileSync(OVERLAY_JS_PATH, 'utf-8');
-    // Inline the Shadow DOM stylesheet — overlay.js uses a __PANEL_STYLES__
-    // placeholder that we replace with the actual CSS at serve time.
-    const panelStyles = fs.readFileSync(PANEL_STYLES_PATH, 'utf-8');
-    content = content.replace('__PANEL_STYLES__', panelStyles.replace(/`/g, '\\`').replace(/\$/g, '\\$'));
+    // Serve the pre-built Svelte bundle — no runtime inlining needed
+    const content = fs.readFileSync(OVERLAY_JS_PATH, 'utf-8');
     res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
     res.end(content);
     return true;
