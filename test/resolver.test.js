@@ -180,7 +180,7 @@ describe('HTML file parsing', () => {
     assert.ok(heroRule.file.endsWith('index.html'));
     assert.equal(heroRule.properties.background, 'blue');
     // Line should be offset from the <style> tag position
-    assert.ok(heroRule.line >= 4);
+    assert.equal(heroRule.line, 6);
 
     cleanupDir(dir);
   });
@@ -321,6 +321,8 @@ div {
     assert.equal(result.selector, null);
     assert.deepEqual(result.properties, {});
     assert.equal(result.matchedRules.length, 0);
+    assert.equal(result.styleType, null);
+    assert.equal(result.cssRule, null);
 
     cleanupDir(dir);
   });
@@ -679,6 +681,8 @@ div { color: green; padding: 10px; }
       (r) => r.annotatedProperties.color?.overridden
     ).length;
     assert.equal(overriddenCount, 1);
+    // The later file (b.css) should win
+    assert.equal(result.properties.color, 'blue');
 
     cleanupDir(dir);
   });
@@ -687,28 +691,6 @@ div { color: green; padding: 10px; }
 // ── M6 Tests: No-match case ────────────────────────────────────────
 
 describe('No-match case', () => {
-  it('returns empty matchedRules and null file when no rules match', () => {
-    const dir = createTempProject({
-      'styles.css': `.card { padding: 16px; }`,
-    });
-
-    const resolver = createResolver(dir);
-    const result = resolver.resolve({
-      tag: 'span',
-      id: '',
-      classes: ['unknown'],
-      inlineStyles: '',
-    });
-
-    assert.equal(result.file, null);
-    assert.equal(result.line, 0);
-    assert.equal(result.selector, null);
-    assert.deepEqual(result.properties, {});
-    assert.equal(result.matchedRules.length, 0);
-
-    cleanupDir(dir);
-  });
-
   it('provides cssFiles list even when no rules match', () => {
     const dir = createTempProject({
       'styles.css': `.card { padding: 16px; }`,
@@ -1158,22 +1140,4 @@ describe('styleType classification', () => {
     cleanupDir(dir);
   });
 
-  it('no matched rules returns null styleType', () => {
-    const dir = createTempProject({
-      'styles.css': `.card { padding: 16px; }`,
-    });
-
-    const resolver = createResolver(dir);
-    const result = resolver.resolve({
-      tag: 'span',
-      id: '',
-      classes: ['unknown'],
-      inlineStyles: '',
-    });
-
-    assert.equal(result.styleType, null);
-    assert.equal(result.cssRule, null);
-
-    cleanupDir(dir);
-  });
 });

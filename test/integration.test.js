@@ -317,22 +317,6 @@ describe('Integration: cssFiles tracking', () => {
     assert.ok(resolver.cssFiles.some((f) => f.endsWith('header.css')));
   });
 
-  it('includes cssFiles in resolve result', () => {
-    setup({
-      'styles.css': `.card { padding: 16px; }`,
-    });
-
-    const resolver = createResolver(tmpDir);
-    const result = resolver.resolve({
-      tag: 'div',
-      id: '',
-      classes: ['card'],
-      inlineStyles: '',
-    });
-
-    assert.ok(Array.isArray(result.cssFiles));
-    assert.ok(result.cssFiles.length >= 1);
-  });
 });
 
 // ── Server Message Validation ─────────────────────────────────────
