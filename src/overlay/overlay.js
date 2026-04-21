@@ -5,313 +5,18 @@
   if (window.__polishOverlayInitialized) return;
   window.__polishOverlayInitialized = true;
 
-  // ── State ──────────────────────────────────────────────────────────
-  let active = true;
-  let hoveredElement = null;
-  let selectedElement = null;
-  let ws = null;
-  let reconnectTimer = null;
-  let sourceData = null;       // { file, selector, line, properties, cssFiles, matchedRules }
-  let panelVisible = false;
-  let debounceTimers = {};
-  let shortcutHintShown = false;
+  // ═══════════════════════════════════════════════════════════════════
+  // 1. CONSTANTS & CONFIGURATION
+  // ═══════════════════════════════════════════════════════════════════
+
   const DEBOUNCE_MS = 150;
-
-  // ── Shadow DOM Container ───────────────────────────────────────────
-  const host = document.createElement('div');
-  host.setAttribute('data-polish-root', '');
-  host.style.cssText = 'all:initial; position:fixed; top:0; left:0; width:0; height:0; z-index:2147483647; pointer-events:none;';
-  document.documentElement.appendChild(host);
-
-  const shadow = host.attachShadow({ mode: 'closed' });
-
-  // ── Overlay Elements ───────────────────────────────────────────────
-
-  // Hover highlight box
-  const hoverBox = document.createElement('div');
-  hoverBox.className = 'polish-hover';
-  shadow.appendChild(hoverBox);
-
-  // Hover label (tag + class info)
-  const hoverLabel = document.createElement('div');
-  hoverLabel.className = 'polish-hover-label';
-  shadow.appendChild(hoverLabel);
-
-  // Selection box
-  const selectBox = document.createElement('div');
-  selectBox.className = 'polish-select';
-  shadow.appendChild(selectBox);
-
-  // Selection label
-  const selectLabel = document.createElement('div');
-  selectLabel.className = 'polish-select-label';
-  shadow.appendChild(selectLabel);
-
-  // Info panel for selected element
-  const infoPanel = document.createElement('div');
-  infoPanel.className = 'polish-info';
-  shadow.appendChild(infoPanel);
-
-  // Badge
-  const badge = document.createElement('div');
-  badge.className = 'polish-badge active';
-  badge.textContent = 'Polish';
-  badge.style.pointerEvents = 'auto';
-  badge.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleOverlay();
-  });
-  shadow.appendChild(badge);
-
-  // ── Manipulation Panel ─────────────────────────────────────────────
-
-  const panel = document.createElement('div');
-  panel.className = 'polish-panel';
-  panel.style.pointerEvents = 'auto';
-  panel.style.display = 'none';
-  shadow.appendChild(panel);
-
-  // Panel header (draggable)
-  const panelHeader = document.createElement('div');
-  panelHeader.className = 'polish-panel-header';
-  panelHeader.innerHTML = '<span class="polish-panel-title">Properties</span><span class="polish-panel-close">\u00D7</span>';
-  panel.appendChild(panelHeader);
-
-  const panelBody = document.createElement('div');
-  panelBody.className = 'polish-panel-body';
-  panel.appendChild(panelBody);
-
-  // -- Panel section builder --
-  function createSection(title, id) {
-    const section = document.createElement('div');
-    section.className = 'polish-section';
-    section.dataset.section = id;
-
-    const header = document.createElement('div');
-    header.className = 'polish-section-header';
-    header.innerHTML = `<span class="polish-section-arrow">\u25B6</span> ${title}`;
-    header.addEventListener('click', () => {
-      section.classList.toggle('collapsed');
-    });
-    section.appendChild(header);
-
-    const content = document.createElement('div');
-    content.className = 'polish-section-content';
-    section.appendChild(content);
-
-    return { section, content };
-  }
-
-  function createColorRow(label, property) {
-    const row = document.createElement('div');
-    row.className = 'polish-control-row';
-
-    const lbl = document.createElement('label');
-    lbl.className = 'polish-control-label';
-    lbl.textContent = label;
-    row.appendChild(lbl);
-
-    const controls = document.createElement('div');
-    controls.className = 'polish-control-inputs';
-
-    const picker = document.createElement('input');
-    picker.type = 'color';
-    picker.className = 'polish-color-picker';
-    picker.dataset.property = property;
-    controls.appendChild(picker);
-
-    const hex = document.createElement('input');
-    hex.type = 'text';
-    hex.className = 'polish-hex-input';
-    hex.placeholder = '#000000';
-    hex.maxLength = 7;
-    hex.dataset.property = property;
-    controls.appendChild(hex);
-
-    picker.addEventListener('input', () => {
-      hex.value = picker.value;
-      applyLivePreview(property, picker.value);
-      debounceSendChange(property, picker.value);
-    });
-
-    picker.addEventListener('change', () => {
-      sendChangeImmediate(property, picker.value);
-    });
-
-    hex.addEventListener('input', () => {
-      const v = hex.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-        picker.value = v;
-        applyLivePreview(property, v);
-        debounceSendChange(property, v);
-      }
-    });
-
-    hex.addEventListener('change', () => {
-      const v = hex.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-        sendChangeImmediate(property, v);
-      }
-    });
-
-    row.appendChild(controls);
-    return { row, picker, hex };
-  }
-
-  function createSliderRow(label, property, min, max, step, defaultUnit) {
-    const row = document.createElement('div');
-    row.className = 'polish-control-row';
-
-    const lbl = document.createElement('label');
-    lbl.className = 'polish-control-label';
-    lbl.textContent = label;
-    row.appendChild(lbl);
-
-    const controls = document.createElement('div');
-    controls.className = 'polish-control-inputs';
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.className = 'polish-slider';
-    slider.min = min;
-    slider.max = max;
-    slider.step = step;
-    slider.dataset.property = property;
-    controls.appendChild(slider);
-
-    const numInput = document.createElement('input');
-    numInput.type = 'number';
-    numInput.className = 'polish-num-input';
-    numInput.min = min;
-    numInput.max = max;
-    numInput.step = step;
-    numInput.dataset.property = property;
-    controls.appendChild(numInput);
-
-    let unitSelect = null;
-    if (defaultUnit) {
-      const units = Array.isArray(defaultUnit) ? defaultUnit : [defaultUnit];
-      unitSelect = document.createElement('select');
-      unitSelect.className = 'polish-unit-select';
-      units.forEach(u => {
-        const opt = document.createElement('option');
-        opt.value = u;
-        opt.textContent = u;
-        unitSelect.appendChild(opt);
-      });
-      controls.appendChild(unitSelect);
-
-      unitSelect.addEventListener('change', () => {
-        const val = numInput.value;
-        const unit = unitSelect.value;
-        if (unit === 'auto') {
-          applyLivePreview(property, 'auto');
-          sendChangeImmediate(property, 'auto');
-        } else {
-          applyLivePreview(property, val + unit);
-          sendChangeImmediate(property, val + unit);
-        }
-      });
-    }
-
-    function getFullValue() {
-      const val = numInput.value;
-      if (unitSelect) {
-        const unit = unitSelect.value;
-        return unit === 'auto' ? 'auto' : val + unit;
-      }
-      return val + (defaultUnit || '');
-    }
-
-    slider.addEventListener('input', () => {
-      numInput.value = slider.value;
-      const fullVal = getFullValue();
-      applyLivePreview(property, fullVal);
-      debounceSendChange(property, fullVal);
-    });
-
-    slider.addEventListener('change', () => {
-      numInput.value = slider.value;
-      sendChangeImmediate(property, getFullValue());
-    });
-
-    numInput.addEventListener('input', () => {
-      const clamped = clampValue(parseFloat(numInput.value), parseFloat(min), parseFloat(max));
-      slider.value = clamped;
-      const fullVal = getFullValue();
-      applyLivePreview(property, fullVal);
-      debounceSendChange(property, fullVal);
-    });
-
-    numInput.addEventListener('change', () => {
-      const clamped = clampValue(parseFloat(numInput.value), parseFloat(min), parseFloat(max));
-      numInput.value = clamped;
-      slider.value = clamped;
-      sendChangeImmediate(property, getFullValue());
-    });
-
-    row.appendChild(controls);
-    return { row, slider, numInput, unitSelect };
-  }
-
-  function createSelectRow(label, property, options) {
-    const row = document.createElement('div');
-    row.className = 'polish-control-row';
-
-    const lbl = document.createElement('label');
-    lbl.className = 'polish-control-label';
-    lbl.textContent = label;
-    row.appendChild(lbl);
-
-    const controls = document.createElement('div');
-    controls.className = 'polish-control-inputs';
-
-    const select = document.createElement('select');
-    select.className = 'polish-select-input';
-    select.dataset.property = property;
-    options.forEach(opt => {
-      const o = document.createElement('option');
-      o.value = opt.value !== undefined ? opt.value : opt;
-      o.textContent = opt.label !== undefined ? opt.label : opt;
-      select.appendChild(o);
-    });
-    controls.appendChild(select);
-
-    select.addEventListener('change', () => {
-      applyLivePreview(property, select.value);
-      sendChangeImmediate(property, select.value);
-    });
-
-    row.appendChild(controls);
-    return { row, select };
-  }
-
-  // -- Build sections --
-
-  // Colors section
-  const colorsSection = createSection('Colors', 'colors');
-  const bgColor = createColorRow('Background', 'background-color');
-  const textColor = createColorRow('Text', 'color');
-  const borderColor = createColorRow('Border', 'border-color');
-  colorsSection.content.appendChild(bgColor.row);
-  colorsSection.content.appendChild(textColor.row);
-  colorsSection.content.appendChild(borderColor.row);
-  panelBody.appendChild(colorsSection.section);
-
-  // Typography section
-  const typographySection = createSection('Typography', 'typography');
 
   const WEB_SAFE_FONTS = [
     'Arial', 'Verdana', 'Helvetica', 'Tahoma', 'Trebuchet MS',
     'Times New Roman', 'Georgia', 'Garamond',
     'Courier New', 'Lucida Console', 'Monaco',
-    'system-ui', 'sans-serif', 'serif', 'monospace'
+    'system-ui', 'sans-serif', 'serif', 'monospace',
   ];
-  const fontFamily = createSelectRow('Family', 'font-family',
-    WEB_SAFE_FONTS.map(f => ({ value: f, label: f }))
-  );
-
-  const fontSize = createSliderRow('Size', 'font-size', 8, 72, 1, ['px', 'rem', 'em']);
 
   const FONT_WEIGHTS = [
     { value: '100', label: '100 Thin' },
@@ -324,746 +29,91 @@
     { value: '800', label: '800' },
     { value: '900', label: '900 Black' },
   ];
-  const fontWeight = createSelectRow('Weight', 'font-weight', FONT_WEIGHTS);
 
-  typographySection.content.appendChild(fontFamily.row);
-  typographySection.content.appendChild(fontSize.row);
-  typographySection.content.appendChild(fontWeight.row);
-  panelBody.appendChild(typographySection.section);
+  // ── Control Schema ────────────────────────────────────────────────
+  // Single source of truth for every panel control. Used to:
+  //   - Build the DOM (createControlsFromSchema)
+  //   - Read computed styles into controls (syncControlFromComputed)
+  //   - Apply authored source values into controls (syncControlFromSource)
 
-  // Size section
-  const sizeSection = createSection('Size', 'size');
-  const widthCtrl = createSliderRow('Width', 'width', 0, 2000, 1, ['px', '%', 'auto', 'vw']);
-  const heightCtrl = createSliderRow('Height', 'height', 0, 2000, 1, ['px', '%', 'auto', 'vh']);
-  sizeSection.content.appendChild(widthCtrl.row);
-  sizeSection.content.appendChild(heightCtrl.row);
-  panelBody.appendChild(sizeSection.section);
+  const CONTROL_SCHEMA = [
+    { section: 'Colors', id: 'colors', controls: [
+      { property: 'background-color', type: 'color', label: 'Background' },
+      { property: 'color',            type: 'color', label: 'Text' },
+      { property: 'border-color',     type: 'color', label: 'Border' },
+    ]},
+    { section: 'Typography', id: 'typography', controls: [
+      { property: 'font-family', type: 'select', label: 'Family',
+        options: WEB_SAFE_FONTS.map(f => ({ value: f, label: f })) },
+      { property: 'font-size', type: 'slider', label: 'Size',
+        min: 8, max: 72, step: 1, units: ['px', 'rem', 'em'] },
+      { property: 'font-weight', type: 'select', label: 'Weight',
+        options: FONT_WEIGHTS },
+    ]},
+    { section: 'Size', id: 'size', controls: [
+      { property: 'width',  type: 'slider', label: 'Width',
+        min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vw'] },
+      { property: 'height', type: 'slider', label: 'Height',
+        min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vh'] },
+    ]},
+    // Spacing is built separately (box model visualization)
+    { section: 'Effects', id: 'effects', controls: [
+      { property: 'border-radius', type: 'slider', label: 'Radius',
+        min: 0, max: 50, step: 1, units: 'px' },
+      { property: 'opacity', type: 'slider', label: 'Opacity',
+        min: 0, max: 1, step: 0.01, units: null },
+    ]},
+  ];
 
-  // Spacing section (box model)
-  const spacingSection = createSection('Spacing', 'spacing');
-  const spacingContainer = document.createElement('div');
-  spacingContainer.className = 'polish-spacing-container';
+  // ═══════════════════════════════════════════════════════════════════
+  // 2. STATE
+  // ═══════════════════════════════════════════════════════════════════
 
-  // Box model visualization
-  const boxModel = document.createElement('div');
-  boxModel.className = 'polish-box-model';
-  boxModel.innerHTML = `
-    <div class="polish-box-margin">
-      <span class="polish-box-label">margin</span>
-      <input class="polish-box-value top" data-property="margin-top" value="0">
-      <input class="polish-box-value right" data-property="margin-right" value="0">
-      <input class="polish-box-value bottom" data-property="margin-bottom" value="0">
-      <input class="polish-box-value left" data-property="margin-left" value="0">
-      <div class="polish-box-border">
-        <span class="polish-box-label">border</span>
-        <div class="polish-box-padding">
-          <span class="polish-box-label">padding</span>
-          <input class="polish-box-value top" data-property="padding-top" value="0">
-          <input class="polish-box-value right" data-property="padding-right" value="0">
-          <input class="polish-box-value bottom" data-property="padding-bottom" value="0">
-          <input class="polish-box-value left" data-property="padding-left" value="0">
-          <div class="polish-box-content">
-            <span class="polish-box-label dim">content</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-  spacingContainer.appendChild(boxModel);
+  const state = {
+    active: true,
+    hoveredElement: null,
+    selectedElement: null,
+    sourceData: null,       // { file, selector, line, properties, cssFiles, matchedRules }
+    panelVisible: false,
+    debounceTimers: {},
+    shortcutHintShown: false,
+    uniformMode: false,
+    panelDragState: null,
+  };
 
-  // Lock toggle for uniform mode
-  const lockRow = document.createElement('div');
-  lockRow.className = 'polish-lock-row';
-  const lockBtn = document.createElement('button');
-  lockBtn.className = 'polish-lock-btn';
-  lockBtn.textContent = '\uD83D\uDD13';
-  lockBtn.title = 'Toggle uniform spacing';
-  let uniformMode = false;
-  lockBtn.addEventListener('click', () => {
-    uniformMode = !uniformMode;
-    lockBtn.textContent = uniformMode ? '\uD83D\uDD12' : '\uD83D\uDD13';
-    lockBtn.classList.toggle('locked', uniformMode);
-  });
-  lockRow.appendChild(lockBtn);
-  const lockLabel = document.createElement('span');
-  lockLabel.className = 'polish-lock-label';
-  lockLabel.textContent = 'Uniform';
-  lockRow.appendChild(lockLabel);
-  spacingContainer.appendChild(lockRow);
+  let ws = null;
+  let reconnectTimer = null;
 
-  // Shorthand indicator badges for margin/padding
-  const shorthandBadgesContainer = document.createElement('div');
-  shorthandBadgesContainer.className = 'polish-shorthand-badges';
-  spacingContainer.appendChild(shorthandBadgesContainer);
+  // ═══════════════════════════════════════════════════════════════════
+  // 3. PURE HELPERS (no DOM, no state mutation)
+  // ═══════════════════════════════════════════════════════════════════
 
-  spacingSection.content.appendChild(spacingContainer);
-  panelBody.appendChild(spacingSection.section);
-
-  // Wire up box model inputs
-  boxModel.querySelectorAll('.polish-box-value').forEach(input => {
-    input.addEventListener('input', () => {
-      const prop = input.dataset.property;
-      const val = input.value.trim();
-      const fullVal = /\d$/.test(val) ? val + 'px' : val;
-      applyLivePreview(prop, fullVal);
-      debounceSendChange(prop, fullVal);
-
-      if (uniformMode) {
-        const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
-        const sides = ['top', 'right', 'bottom', 'left'];
-        sides.forEach(side => {
-          const sibProp = `${prefix}-${side}`;
-          if (sibProp !== prop) {
-            const sib = boxModel.querySelector(`[data-property="${sibProp}"]`);
-            if (sib) sib.value = input.value;
-            applyLivePreview(sibProp, fullVal);
-            debounceSendChange(sibProp, fullVal);
-          }
-        });
-      }
-    });
-
-    input.addEventListener('change', () => {
-      const prop = input.dataset.property;
-      const val = input.value.trim();
-      const fullVal = /\d$/.test(val) ? val + 'px' : val;
-      sendChangeImmediate(prop, fullVal);
-
-      if (uniformMode) {
-        const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
-        const sides = ['top', 'right', 'bottom', 'left'];
-        sides.forEach(side => {
-          const sibProp = `${prefix}-${side}`;
-          if (sibProp !== prop) {
-            sendChangeImmediate(sibProp, fullVal);
-          }
-        });
-      }
-    });
-  });
-
-  // Effects section
-  const effectsSection = createSection('Effects', 'effects');
-  const borderRadius = createSliderRow('Radius', 'border-radius', 0, 50, 1, 'px');
-  const opacity = createSliderRow('Opacity', 'opacity', 0, 1, 0.01, null);
-  effectsSection.content.appendChild(borderRadius.row);
-  effectsSection.content.appendChild(opacity.row);
-  panelBody.appendChild(effectsSection.section);
-
-  // Panel close button
-  panelHeader.querySelector('.polish-panel-close').addEventListener('click', (e) => {
-    e.stopPropagation();
-    deselectElement();
-  });
-
-  // Panel dragging
-  let panelDragState = null;
-
-  panelHeader.addEventListener('mousedown', (e) => {
-    if (e.target.classList.contains('polish-panel-close')) return;
-    e.preventDefault();
-    const panelRect = panel.getBoundingClientRect();
-    panelDragState = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startLeft: panelRect.left,
-      startTop: panelRect.top,
-    };
-  });
-
-  function onPanelDrag(e) {
-    if (!panelDragState) return;
-    const dx = e.clientX - panelDragState.startX;
-    const dy = e.clientY - panelDragState.startY;
-    let newLeft = panelDragState.startLeft + dx;
-    let newTop = panelDragState.startTop + dy;
-
-    newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - panel.offsetWidth));
-    newTop = Math.max(0, Math.min(newTop, window.innerHeight - 40));
-
-    panel.style.left = newLeft + 'px';
-    panel.style.top = newTop + 'px';
+  function clampValue(val, min, max) {
+    if (isNaN(val)) return min;
+    return Math.min(max, Math.max(min, val));
   }
 
-  function onPanelDragEnd() {
-    panelDragState = null;
+  function rgbToHex(rgb) {
+    if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return '#000000';
+    if (rgb.startsWith('#')) return rgb.length === 7 ? rgb : rgb;
+    const match = rgb.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (!match) return '#000000';
+    const r = parseInt(match[1], 10);
+    const g = parseInt(match[2], 10);
+    const b = parseInt(match[3], 10);
+    return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
   }
 
-  // ── Styles (injected into Shadow DOM) ──────────────────────────────
-  const style = document.createElement('style');
-  style.textContent = `
-    :host {
-      all: initial;
-    }
-
-    .polish-hover,
-    .polish-select {
-      position: fixed;
-      pointer-events: none;
-      box-sizing: border-box;
-      border-radius: 2px;
-      transition: all 0.05s ease-out;
-      display: none;
-    }
-
-    .polish-hover {
-      border: 2px solid rgba(59, 130, 246, 0.8);
-      background: rgba(59, 130, 246, 0.05);
-    }
-
-    .polish-select {
-      border: 2px solid rgba(234, 88, 12, 0.9);
-      background: rgba(234, 88, 12, 0.05);
-    }
-
-    .polish-hover-label,
-    .polish-select-label {
-      position: fixed;
-      pointer-events: none;
-      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-      font-size: 11px;
-      line-height: 1;
-      padding: 3px 6px;
-      border-radius: 3px;
-      white-space: nowrap;
-      display: none;
-      z-index: 1;
-    }
-
-    .polish-hover-label {
-      background: rgba(59, 130, 246, 0.9);
-      color: #fff;
-    }
-
-    .polish-select-label {
-      background: rgba(234, 88, 12, 0.9);
-      color: #fff;
-    }
-
-    .polish-info {
-      position: fixed;
-      pointer-events: none;
-      background: rgba(15, 15, 15, 0.92);
-      color: #e5e5e5;
-      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-      font-size: 11px;
-      line-height: 1.5;
-      padding: 8px 10px;
-      border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      max-width: 320px;
-      display: none;
-      z-index: 2;
-      backdrop-filter: blur(8px);
-    }
-
-    .polish-info .tag { color: #93c5fd; }
-    .polish-info .id { color: #fbbf24; }
-    .polish-info .cls { color: #86efac; }
-    .polish-info .dim { color: #a5a5a5; }
-    .polish-info .sep { color: #525252; margin: 0 4px; }
-
-    .polish-badge {
-      position: fixed;
-      bottom: 12px;
-      right: 12px;
-      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 4px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-      user-select: none;
-      z-index: 3;
-      transition: opacity 0.2s, background 0.2s;
-    }
-
-    .polish-badge.active {
-      background: rgba(234, 88, 12, 0.9);
-      color: #fff;
-      opacity: 1;
-    }
-
-    .polish-badge.inactive {
-      background: rgba(60, 60, 60, 0.7);
-      color: #888;
-      opacity: 0.6;
-    }
-
-    /* ── Manipulation Panel ─────────────────────────────────────────── */
-
-    .polish-panel {
-      position: fixed;
-      width: 280px;
-      max-height: 80vh;
-      background: rgba(30, 30, 30, 0.95);
-      color: #e0e0e0;
-      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-      font-size: 11px;
-      line-height: 1.4;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      z-index: 10;
-      overflow: hidden;
-      backdrop-filter: blur(12px);
-      transition: opacity 0.15s ease, transform 0.15s ease;
-    }
-
-    .polish-panel[data-opening] {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-
-    .polish-panel-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 10px;
-      background: rgba(255, 255, 255, 0.05);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      cursor: grab;
-      user-select: none;
-    }
-
-    .polish-panel-header:active {
-      cursor: grabbing;
-    }
-
-    .polish-panel-title {
-      font-weight: 600;
-      color: #fff;
-      font-size: 11px;
-    }
-
-    .polish-panel-close {
-      cursor: pointer;
-      color: #888;
-      font-size: 16px;
-      line-height: 1;
-      padding: 0 2px;
-      transition: color 0.1s;
-    }
-
-    .polish-panel-close:hover {
-      color: #fff;
-    }
-
-    .polish-panel-body {
-      overflow-y: auto;
-      max-height: calc(80vh - 36px);
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255,255,255,0.15) transparent;
-    }
-
-    .polish-panel-body::-webkit-scrollbar {
-      width: 4px;
-    }
-
-    .polish-panel-body::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    .polish-panel-body::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 2px;
-    }
-
-    /* ── Sections ─────────────────────────────────────────────────── */
-
-    .polish-section {
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    }
-
-    .polish-section:last-child {
-      border-bottom: none;
-    }
-
-    .polish-section-header {
-      padding: 6px 10px;
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #999;
-      cursor: pointer;
-      user-select: none;
-      transition: color 0.1s;
-    }
-
-    .polish-section-header:hover {
-      color: #ccc;
-    }
-
-    .polish-section-arrow {
-      display: inline-block;
-      font-size: 8px;
-      margin-right: 4px;
-      transition: transform 0.15s ease;
-      transform: rotate(90deg);
-    }
-
-    .polish-section.collapsed .polish-section-arrow {
-      transform: rotate(0deg);
-    }
-
-    .polish-section-content {
-      padding: 4px 10px 8px;
-    }
-
-    .polish-section.collapsed .polish-section-content {
-      display: none;
-    }
-
-    /* ── Control Rows ─────────────────────────────────────────────── */
-
-    .polish-control-row {
-      margin-bottom: 6px;
-    }
-
-    .polish-control-label {
-      display: block;
-      font-size: 10px;
-      color: #888;
-      margin-bottom: 3px;
-    }
-
-    .polish-control-inputs {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    /* ── Color Controls ────────────────────────────────────────────── */
-
-    .polish-color-picker {
-      width: 28px;
-      height: 22px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 3px;
-      padding: 0;
-      cursor: pointer;
-      background: none;
-      -webkit-appearance: none;
-    }
-
-    .polish-color-picker::-webkit-color-swatch-wrapper {
-      padding: 1px;
-    }
-
-    .polish-color-picker::-webkit-color-swatch {
-      border: none;
-      border-radius: 2px;
-    }
-
-    .polish-hex-input {
-      flex: 1;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      color: #e0e0e0;
-      font-family: inherit;
-      font-size: 11px;
-      padding: 3px 6px;
-      outline: none;
-    }
-
-    .polish-hex-input:focus {
-      border-color: #4A9EFF;
-    }
-
-    /* ── Sliders ───────────────────────────────────────────────────── */
-
-    .polish-slider {
-      flex: 1;
-      height: 4px;
-      -webkit-appearance: none;
-      appearance: none;
-      background: rgba(255, 255, 255, 0.12);
-      border-radius: 2px;
-      outline: none;
-    }
-
-    .polish-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #4A9EFF;
-      cursor: pointer;
-      border: none;
-    }
-
-    .polish-slider::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #4A9EFF;
-      cursor: pointer;
-      border: none;
-    }
-
-    /* ── Numeric / Select Inputs ───────────────────────────────────── */
-
-    .polish-num-input {
-      width: 44px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      color: #e0e0e0;
-      font-family: inherit;
-      font-size: 11px;
-      padding: 3px 4px;
-      outline: none;
-      text-align: right;
-    }
-
-    .polish-num-input:focus {
-      border-color: #4A9EFF;
-    }
-
-    .polish-num-input::-webkit-inner-spin-button,
-    .polish-num-input::-webkit-outer-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
-    }
-
-    .polish-unit-select,
-    .polish-select-input {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      color: #e0e0e0;
-      font-family: inherit;
-      font-size: 10px;
-      padding: 3px 4px;
-      outline: none;
-      cursor: pointer;
-    }
-
-    .polish-unit-select:focus,
-    .polish-select-input:focus {
-      border-color: #4A9EFF;
-    }
-
-    .polish-select-input {
-      flex: 1;
-      font-size: 11px;
-    }
-
-    .polish-unit-select option,
-    .polish-select-input option {
-      background: #2a2a2a;
-      color: #e0e0e0;
-    }
-
-    /* ── Box Model ─────────────────────────────────────────────────── */
-
-    .polish-spacing-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .polish-box-model {
-      width: 100%;
-    }
-
-    .polish-box-margin,
-    .polish-box-border,
-    .polish-box-padding {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 14px 24px;
-      border-radius: 3px;
-    }
-
-    .polish-box-margin {
-      background: rgba(251, 191, 36, 0.08);
-      border: 1px dashed rgba(251, 191, 36, 0.3);
-    }
-
-    .polish-box-border {
-      width: 100%;
-      background: rgba(148, 163, 184, 0.08);
-      border: 1px dashed rgba(148, 163, 184, 0.3);
-    }
-
-    .polish-box-padding {
-      width: 100%;
-      background: rgba(134, 239, 172, 0.08);
-      border: 1px dashed rgba(134, 239, 172, 0.3);
-    }
-
-    .polish-box-content {
-      width: 100%;
-      height: 24px;
-      background: rgba(147, 197, 253, 0.1);
-      border: 1px dashed rgba(147, 197, 253, 0.3);
-      border-radius: 2px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .polish-box-label {
-      position: absolute;
-      top: 1px;
-      left: 4px;
-      font-size: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: #777;
-    }
-
-    .polish-box-label.dim {
-      position: static;
-      color: #666;
-    }
-
-    .polish-box-value {
-      position: absolute;
-      width: 30px;
-      text-align: center;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 2px;
-      color: #ccc;
-      font-family: inherit;
-      font-size: 10px;
-      padding: 1px 2px;
-      outline: none;
-    }
-
-    .polish-box-value:focus {
-      border-color: #4A9EFF;
-      background: rgba(74, 158, 255, 0.1);
-    }
-
-    .polish-box-value.top { top: 14px; left: 50%; transform: translateX(-50%); }
-    .polish-box-value.right { right: 2px; top: 50%; transform: translateY(-50%); }
-    .polish-box-value.bottom { bottom: 2px; left: 50%; transform: translateX(-50%); }
-    .polish-box-value.left { left: 2px; top: 50%; transform: translateY(-50%); }
-
-    /* ── Lock Button ───────────────────────────────────────────────── */
-
-    .polish-lock-row {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .polish-lock-btn {
-      background: none;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      color: #888;
-      cursor: pointer;
-      font-size: 12px;
-      padding: 2px 4px;
-      transition: color 0.1s, border-color 0.1s;
-    }
-
-    .polish-lock-btn:hover {
-      color: #ccc;
-      border-color: rgba(255, 255, 255, 0.2);
-    }
-
-    .polish-lock-btn.locked {
-      color: #4A9EFF;
-      border-color: rgba(74, 158, 255, 0.3);
-    }
-
-    .polish-lock-label {
-      font-size: 10px;
-      color: #777;
-    }
-
-    /* ── Breadcrumbs ──────────────────────────────────────────────── */
-
-    .polish-breadcrumb {
-      font-size: 9px;
-      color: #888;
-      letter-spacing: 0.3px;
-      line-height: 1.3;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: block;
-      max-width: 300px;
-      margin-bottom: 2px;
-    }
-
-    /* ── Pseudo-class Badges ──────────────────────────────────────── */
-
-    .polish-pseudo-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      padding: 4px 10px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    }
-
-    .polish-pseudo-badge {
-      display: inline-block;
-      font-size: 9px;
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 3px;
-      background: rgba(168, 85, 247, 0.15);
-      color: #c084fc;
-      border: 1px solid rgba(168, 85, 247, 0.25);
-    }
-
-    /* ── Shorthand Badges ─────────────────────────────────────────── */
-
-    .polish-shorthand-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      min-height: 0;
-    }
-
-    .polish-shorthand-badge {
-      display: inline-block;
-      font-size: 9px;
-      padding: 1px 5px;
-      border-radius: 2px;
-      background: rgba(59, 130, 246, 0.12);
-      color: #93c5fd;
-      border: 1px solid rgba(59, 130, 246, 0.2);
-    }
-
-    /* ── Keyboard Shortcut Hint ───────────────────────────────────── */
-
-    .polish-shortcut-hint {
-      position: fixed;
-      bottom: 40px;
-      right: 12px;
-      background: rgba(15, 15, 15, 0.92);
-      color: #ccc;
-      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-      font-size: 10px;
-      line-height: 1.6;
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(8px);
-      z-index: 4;
-      pointer-events: none;
-      transition: opacity 0.5s ease;
-    }
-
-    .polish-shortcut-hint strong {
-      color: #fff;
-    }
-  `;
-  shadow.appendChild(style);
-
-  // ── Helpers ────────────────────────────────────────────────────────
+  function parseNumericValue(val) {
+    if (!val || val === 'auto' || val === 'none') return { num: 0, unit: 'px' };
+    const match = String(val).match(/^(-?[\d.]+)\s*(px|rem|em|%|vw|vh)?$/);
+    if (!match) return { num: 0, unit: 'px' };
+    return { num: parseFloat(match[1]), unit: match[2] || 'px' };
+  }
+
+  function cssToCamel(property) {
+    return property.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
 
   function describeElement(el) {
     const tag = el.tagName.toLowerCase();
@@ -1082,7 +132,97 @@
     return label;
   }
 
-  function positionBox(box, label, rect, offset) {
+  function isPolishElement(el) {
+    if (!el || el === document || el === document.documentElement) return true;
+    if (el.hasAttribute && el.hasAttribute('data-polish-root')) return true;
+    return false;
+  }
+
+  function buildBreadcrumbs(el) {
+    const parts = [];
+    let node = el;
+    while (node && node !== document.body && node !== document.documentElement) {
+      const { tag, id, classes } = describeElement(node);
+      let label = tag;
+      if (id) label += '#' + id;
+      if (classes.length) label += '.' + classes.slice(0, 2).join('.');
+      if (classes.length > 2) label += '...';
+      parts.unshift(label);
+      if (parts.length >= 4) {
+        parts.unshift('...');
+        break;
+      }
+      node = node.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
+  function buildInfoHTML(el) {
+    const { tag, id, classes } = describeElement(el);
+    const rect = el.getBoundingClientRect();
+    const computed = window.getComputedStyle(el);
+
+    const breadcrumb = buildBreadcrumbs(el);
+    let html = `<span class="polish-breadcrumb">${breadcrumb}</span><br>`;
+
+    html += `<span class="tag">&lt;${tag}&gt;</span>`;
+    if (id) html += `<span class="sep">|</span><span class="id">#${id}</span>`;
+    if (classes.length) html += `<span class="sep">|</span><span class="cls">.${classes.join('.')}</span>`;
+    html += `<br><span class="dim">${Math.round(rect.width)} \u00D7 ${Math.round(rect.height)}px</span>`;
+    html += `<span class="sep">|</span><span class="dim">padding: ${computed.padding}</span>`;
+    html += `<span class="sep">|</span><span class="dim">margin: ${computed.margin}</span>`;
+
+    return html;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 4. DOM CONSTRUCTION — Shadow Root, Overlays, Badge
+  // ═══════════════════════════════════════════════════════════════════
+
+  const host = document.createElement('div');
+  host.setAttribute('data-polish-root', '');
+  host.style.cssText = 'all:initial; position:fixed; top:0; left:0; width:0; height:0; z-index:2147483647; pointer-events:none;';
+  document.documentElement.appendChild(host);
+
+  const shadow = host.attachShadow({ mode: 'closed' });
+
+  // -- Overlay highlight boxes --
+
+  const hoverBox = document.createElement('div');
+  hoverBox.className = 'polish-hover';
+  shadow.appendChild(hoverBox);
+
+  const hoverLabel = document.createElement('div');
+  hoverLabel.className = 'polish-hover-label';
+  shadow.appendChild(hoverLabel);
+
+  const selectBox = document.createElement('div');
+  selectBox.className = 'polish-select';
+  shadow.appendChild(selectBox);
+
+  const selectLabel = document.createElement('div');
+  selectLabel.className = 'polish-select-label';
+  shadow.appendChild(selectLabel);
+
+  const infoPanel = document.createElement('div');
+  infoPanel.className = 'polish-info';
+  shadow.appendChild(infoPanel);
+
+  // -- Badge --
+
+  const badge = document.createElement('div');
+  badge.className = 'polish-badge active';
+  badge.textContent = 'Polish';
+  badge.style.pointerEvents = 'auto';
+  badge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleOverlay();
+  });
+  shadow.appendChild(badge);
+
+  // -- Overlay box positioning helpers --
+
+  function positionBox(box, label, rect) {
     box.style.display = 'block';
     box.style.top = rect.top + 'px';
     box.style.left = rect.left + 'px';
@@ -1125,78 +265,580 @@
     infoPanel.style.left = left + 'px';
   }
 
-  /**
-   * Build a breadcrumb hierarchy string for an element.
-   * e.g., "div.container > section.card > h2"
-   */
-  function buildBreadcrumbs(el) {
-    const parts = [];
-    let node = el;
-    while (node && node !== document.body && node !== document.documentElement) {
-      const { tag, id, classes } = describeElement(node);
-      let label = tag;
-      if (id) label += '#' + id;
-      if (classes.length) label += '.' + classes.slice(0, 2).join('.');
-      if (classes.length > 2) label += '...';
-      parts.unshift(label);
-      if (parts.length >= 4) {
-        parts.unshift('...');
-        break;
+  // ═══════════════════════════════════════════════════════════════════
+  // 5. PANEL CONSTRUCTION (from schema)
+  // ═══════════════════════════════════════════════════════════════════
+
+  const panel = document.createElement('div');
+  panel.className = 'polish-panel';
+  panel.style.pointerEvents = 'auto';
+  panel.style.display = 'none';
+  shadow.appendChild(panel);
+
+  // -- Panel header (draggable) --
+
+  const panelHeader = document.createElement('div');
+  panelHeader.className = 'polish-panel-header';
+  panelHeader.innerHTML = '<span class="polish-panel-title">Properties</span><span class="polish-panel-close">\u00D7</span>';
+  panel.appendChild(panelHeader);
+
+  const panelBody = document.createElement('div');
+  panelBody.className = 'polish-panel-body';
+  panel.appendChild(panelBody);
+
+  // -- Section builder --
+
+  function createSection(title, id) {
+    const section = document.createElement('div');
+    section.className = 'polish-section';
+    section.dataset.section = id;
+
+    const header = document.createElement('div');
+    header.className = 'polish-section-header';
+    header.innerHTML = `<span class="polish-section-arrow">\u25B6</span> ${title}`;
+    header.addEventListener('click', () => {
+      section.classList.toggle('collapsed');
+    });
+    section.appendChild(header);
+
+    const content = document.createElement('div');
+    content.className = 'polish-section-content';
+    section.appendChild(content);
+
+    return { section, content };
+  }
+
+  // -- Control builders (one per type) --
+
+  function createColorControl(label, property) {
+    const row = document.createElement('div');
+    row.className = 'polish-control-row';
+
+    const lbl = document.createElement('label');
+    lbl.className = 'polish-control-label';
+    lbl.textContent = label;
+    row.appendChild(lbl);
+
+    const controls = document.createElement('div');
+    controls.className = 'polish-control-inputs';
+
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.className = 'polish-color-picker';
+    picker.dataset.property = property;
+    controls.appendChild(picker);
+
+    const hex = document.createElement('input');
+    hex.type = 'text';
+    hex.className = 'polish-hex-input';
+    hex.placeholder = '#000000';
+    hex.maxLength = 7;
+    hex.dataset.property = property;
+    controls.appendChild(hex);
+
+    bindColorEvents(picker, hex, property);
+
+    row.appendChild(controls);
+    return { row, picker, hex };
+  }
+
+  function bindColorEvents(picker, hex, property) {
+    picker.addEventListener('input', () => {
+      hex.value = picker.value;
+      applyLivePreview(property, picker.value);
+      debounceSendChange(property, picker.value);
+    });
+
+    picker.addEventListener('change', () => {
+      sendChangeImmediate(property, picker.value);
+    });
+
+    hex.addEventListener('input', () => {
+      const v = hex.value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+        picker.value = v;
+        applyLivePreview(property, v);
+        debounceSendChange(property, v);
       }
-      node = node.parentElement;
+    });
+
+    hex.addEventListener('change', () => {
+      const v = hex.value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+        sendChangeImmediate(property, v);
+      }
+    });
+  }
+
+  function createSliderControl(label, property, min, max, step, defaultUnit) {
+    const row = document.createElement('div');
+    row.className = 'polish-control-row';
+
+    const lbl = document.createElement('label');
+    lbl.className = 'polish-control-label';
+    lbl.textContent = label;
+    row.appendChild(lbl);
+
+    const controls = document.createElement('div');
+    controls.className = 'polish-control-inputs';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'polish-slider';
+    slider.min = min;
+    slider.max = max;
+    slider.step = step;
+    slider.dataset.property = property;
+    controls.appendChild(slider);
+
+    const numInput = document.createElement('input');
+    numInput.type = 'number';
+    numInput.className = 'polish-num-input';
+    numInput.min = min;
+    numInput.max = max;
+    numInput.step = step;
+    numInput.dataset.property = property;
+    controls.appendChild(numInput);
+
+    const unitSelect = createUnitSelect(defaultUnit);
+    if (unitSelect) {
+      controls.appendChild(unitSelect);
     }
-    return parts.join(' > ');
+
+    function getFullValue() {
+      const val = numInput.value;
+      if (unitSelect) {
+        const unit = unitSelect.value;
+        return unit === 'auto' ? 'auto' : val + unit;
+      }
+      return val + (defaultUnit || '');
+    }
+
+    bindSliderEvents(slider, numInput, unitSelect, property, min, max, getFullValue);
+
+    row.appendChild(controls);
+    return { row, slider, numInput, unitSelect };
   }
 
-  function buildInfoHTML(el) {
-    const { tag, id, classes } = describeElement(el);
-    const rect = el.getBoundingClientRect();
-    const computed = window.getComputedStyle(el);
-
-    // Element hierarchy breadcrumbs
-    const breadcrumb = buildBreadcrumbs(el);
-    let html = `<span class="polish-breadcrumb">${breadcrumb}</span><br>`;
-
-    html += `<span class="tag">&lt;${tag}&gt;</span>`;
-    if (id) html += `<span class="sep">|</span><span class="id">#${id}</span>`;
-    if (classes.length) html += `<span class="sep">|</span><span class="cls">.${classes.join('.')}</span>`;
-    html += `<br><span class="dim">${Math.round(rect.width)} \u00D7 ${Math.round(rect.height)}px</span>`;
-    html += `<span class="sep">|</span><span class="dim">padding: ${computed.padding}</span>`;
-    html += `<span class="sep">|</span><span class="dim">margin: ${computed.margin}</span>`;
-
-    return html;
+  function createUnitSelect(defaultUnit) {
+    if (!defaultUnit) return null;
+    const units = Array.isArray(defaultUnit) ? defaultUnit : [defaultUnit];
+    const unitSelect = document.createElement('select');
+    unitSelect.className = 'polish-unit-select';
+    units.forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u;
+      opt.textContent = u;
+      unitSelect.appendChild(opt);
+    });
+    return unitSelect;
   }
 
-  function isPolishElement(el) {
-    if (!el || el === document || el === document.documentElement) return true;
-    if (el.hasAttribute && el.hasAttribute('data-polish-root')) return true;
+  function bindSliderEvents(slider, numInput, unitSelect, property, min, max, getFullValue) {
+    if (unitSelect) {
+      unitSelect.addEventListener('change', () => {
+        const val = numInput.value;
+        const unit = unitSelect.value;
+        if (unit === 'auto') {
+          applyLivePreview(property, 'auto');
+          sendChangeImmediate(property, 'auto');
+        } else {
+          applyLivePreview(property, val + unit);
+          sendChangeImmediate(property, val + unit);
+        }
+      });
+    }
+
+    slider.addEventListener('input', () => {
+      numInput.value = slider.value;
+      const fullVal = getFullValue();
+      applyLivePreview(property, fullVal);
+      debounceSendChange(property, fullVal);
+    });
+
+    slider.addEventListener('change', () => {
+      numInput.value = slider.value;
+      sendChangeImmediate(property, getFullValue());
+    });
+
+    numInput.addEventListener('input', () => {
+      const clamped = clampValue(parseFloat(numInput.value), parseFloat(min), parseFloat(max));
+      slider.value = clamped;
+      const fullVal = getFullValue();
+      applyLivePreview(property, fullVal);
+      debounceSendChange(property, fullVal);
+    });
+
+    numInput.addEventListener('change', () => {
+      const clamped = clampValue(parseFloat(numInput.value), parseFloat(min), parseFloat(max));
+      numInput.value = clamped;
+      slider.value = clamped;
+      sendChangeImmediate(property, getFullValue());
+    });
+  }
+
+  function createSelectControl(label, property, options) {
+    const row = document.createElement('div');
+    row.className = 'polish-control-row';
+
+    const lbl = document.createElement('label');
+    lbl.className = 'polish-control-label';
+    lbl.textContent = label;
+    row.appendChild(lbl);
+
+    const controls = document.createElement('div');
+    controls.className = 'polish-control-inputs';
+
+    const select = document.createElement('select');
+    select.className = 'polish-select-input';
+    select.dataset.property = property;
+    options.forEach(opt => {
+      const o = document.createElement('option');
+      o.value = opt.value !== undefined ? opt.value : opt;
+      o.textContent = opt.label !== undefined ? opt.label : opt;
+      select.appendChild(o);
+    });
+    controls.appendChild(select);
+
+    select.addEventListener('change', () => {
+      applyLivePreview(property, select.value);
+      sendChangeImmediate(property, select.value);
+    });
+
+    row.appendChild(controls);
+    return { row, select };
+  }
+
+  // -- Build controls from schema --
+
+  // Map from property name to its control handle (for sync functions)
+  const controlHandles = {};
+
+  function buildControlFromDef(def) {
+    switch (def.type) {
+      case 'color':
+        return createColorControl(def.label, def.property);
+      case 'slider':
+        return createSliderControl(
+          def.label, def.property, def.min, def.max, def.step, def.units
+        );
+      case 'select':
+        return createSelectControl(def.label, def.property, def.options);
+      default:
+        throw new Error(`Unknown control type: ${def.type}`);
+    }
+  }
+
+  // Build all schema-driven sections and controls
+  CONTROL_SCHEMA.forEach(sectionDef => {
+    const { section, content } = createSection(sectionDef.section, sectionDef.id);
+
+    sectionDef.controls.forEach(controlDef => {
+      const handle = buildControlFromDef(controlDef);
+      content.appendChild(handle.row);
+      controlHandles[controlDef.property] = { def: controlDef, handle };
+    });
+
+    panelBody.appendChild(section);
+  });
+
+  // -- Spacing section (box model — built separately, not schema-driven) --
+
+  const spacingSection = createSection('Spacing', 'spacing');
+  const spacingContainer = document.createElement('div');
+  spacingContainer.className = 'polish-spacing-container';
+
+  const boxModel = document.createElement('div');
+  boxModel.className = 'polish-box-model';
+  boxModel.innerHTML = `
+    <div class="polish-box-margin">
+      <span class="polish-box-label">margin</span>
+      <input class="polish-box-value top" data-property="margin-top" value="0">
+      <input class="polish-box-value right" data-property="margin-right" value="0">
+      <input class="polish-box-value bottom" data-property="margin-bottom" value="0">
+      <input class="polish-box-value left" data-property="margin-left" value="0">
+      <div class="polish-box-border">
+        <span class="polish-box-label">border</span>
+        <div class="polish-box-padding">
+          <span class="polish-box-label">padding</span>
+          <input class="polish-box-value top" data-property="padding-top" value="0">
+          <input class="polish-box-value right" data-property="padding-right" value="0">
+          <input class="polish-box-value bottom" data-property="padding-bottom" value="0">
+          <input class="polish-box-value left" data-property="padding-left" value="0">
+          <div class="polish-box-content">
+            <span class="polish-box-label dim">content</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  spacingContainer.appendChild(boxModel);
+
+  // Lock toggle for uniform mode
+  const lockRow = document.createElement('div');
+  lockRow.className = 'polish-lock-row';
+  const lockBtn = document.createElement('button');
+  lockBtn.className = 'polish-lock-btn';
+  lockBtn.textContent = '\uD83D\uDD13';
+  lockBtn.title = 'Toggle uniform spacing';
+  lockBtn.addEventListener('click', () => {
+    state.uniformMode = !state.uniformMode;
+    lockBtn.textContent = state.uniformMode ? '\uD83D\uDD12' : '\uD83D\uDD13';
+    lockBtn.classList.toggle('locked', state.uniformMode);
+  });
+  lockRow.appendChild(lockBtn);
+  const lockLabel = document.createElement('span');
+  lockLabel.className = 'polish-lock-label';
+  lockLabel.textContent = 'Uniform';
+  lockRow.appendChild(lockLabel);
+  spacingContainer.appendChild(lockRow);
+
+  // Shorthand indicator badges for margin/padding
+  const shorthandBadgesContainer = document.createElement('div');
+  shorthandBadgesContainer.className = 'polish-shorthand-badges';
+  spacingContainer.appendChild(shorthandBadgesContainer);
+
+  spacingSection.content.appendChild(spacingContainer);
+
+  // Insert spacing section after size, before effects
+  // Schema order: colors(0), typography(1), size(2), effects(3)
+  // We want: colors, typography, size, spacing, effects
+  const effectsSectionEl = panelBody.lastElementChild;
+  panelBody.insertBefore(spacingSection.section, effectsSectionEl);
+
+  // Wire up box model inputs
+  bindBoxModelEvents(boxModel);
+
+  function bindBoxModelEvents(boxModelEl) {
+    boxModelEl.querySelectorAll('.polish-box-value').forEach(input => {
+      input.addEventListener('input', () => {
+        const prop = input.dataset.property;
+        const val = input.value.trim();
+        const fullVal = /\d$/.test(val) ? val + 'px' : val;
+        applyLivePreview(prop, fullVal);
+        debounceSendChange(prop, fullVal);
+
+        if (state.uniformMode) {
+          applyUniformSpacing(boxModelEl, input, prop, fullVal);
+        }
+      });
+
+      input.addEventListener('change', () => {
+        const prop = input.dataset.property;
+        const val = input.value.trim();
+        const fullVal = /\d$/.test(val) ? val + 'px' : val;
+        sendChangeImmediate(prop, fullVal);
+
+        if (state.uniformMode) {
+          sendUniformSpacingImmediate(prop, fullVal);
+        }
+      });
+    });
+  }
+
+  function applyUniformSpacing(boxModelEl, sourceInput, prop, fullVal) {
+    const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
+    const sides = ['top', 'right', 'bottom', 'left'];
+    sides.forEach(side => {
+      const sibProp = `${prefix}-${side}`;
+      if (sibProp !== prop) {
+        const sib = boxModelEl.querySelector(`[data-property="${sibProp}"]`);
+        if (sib) sib.value = sourceInput.value;
+        applyLivePreview(sibProp, fullVal);
+        debounceSendChange(sibProp, fullVal);
+      }
+    });
+  }
+
+  function sendUniformSpacingImmediate(prop, fullVal) {
+    const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
+    const sides = ['top', 'right', 'bottom', 'left'];
+    sides.forEach(side => {
+      const sibProp = `${prefix}-${side}`;
+      if (sibProp !== prop) {
+        sendChangeImmediate(sibProp, fullVal);
+      }
+    });
+  }
+
+  // -- Panel close --
+
+  panelHeader.querySelector('.polish-panel-close').addEventListener('click', (e) => {
+    e.stopPropagation();
+    deselectElement();
+  });
+
+  // -- Panel dragging --
+
+  panelHeader.addEventListener('mousedown', (e) => {
+    if (e.target.classList.contains('polish-panel-close')) return;
+    e.preventDefault();
+    const panelRect = panel.getBoundingClientRect();
+    state.panelDragState = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: panelRect.left,
+      startTop: panelRect.top,
+    };
+  });
+
+  function onPanelDrag(e) {
+    if (!state.panelDragState) return;
+    const dx = e.clientX - state.panelDragState.startX;
+    const dy = e.clientY - state.panelDragState.startY;
+    let newLeft = state.panelDragState.startLeft + dx;
+    let newTop = state.panelDragState.startTop + dy;
+
+    newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - panel.offsetWidth));
+    newTop = Math.max(0, Math.min(newTop, window.innerHeight - 40));
+
+    panel.style.left = newLeft + 'px';
+    panel.style.top = newTop + 'px';
+  }
+
+  function onPanelDragEnd() {
+    state.panelDragState = null;
+  }
+
+  // -- Keyboard shortcut hint --
+
+  const shortcutHint = document.createElement('div');
+  shortcutHint.className = 'polish-shortcut-hint';
+  const isMacHint = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  shortcutHint.innerHTML = [
+    '<strong>Shortcuts:</strong>',
+    (isMacHint ? 'Cmd' : 'Ctrl') + '+Shift+P \u2014 Toggle overlay',
+    'Click \u2014 Select element',
+    'Esc \u2014 Deselect',
+    'Tab / Shift+Tab \u2014 Cycle siblings',
+  ].join('<br>');
+  shortcutHint.style.display = 'none';
+  shadow.appendChild(shortcutHint);
+
+  // ── Inject Shadow DOM stylesheet ──────────────────────────────────
+  // The __PANEL_STYLES__ placeholder is replaced at serve time by the
+  // proxy with the contents of panel-styles.css.
+
+  const style = document.createElement('style');
+  style.textContent = `__PANEL_STYLES__`;
+  shadow.appendChild(style);
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 6. PANEL VALUE SYNC (computed styles + authored source)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Set a <select> element to the option matching `value`, return true if found.
+  function setSelectValue(selectEl, value) {
+    for (let i = 0; i < selectEl.options.length; i++) {
+      if (selectEl.options[i].value === value) {
+        selectEl.selectedIndex = i;
+        return true;
+      }
+    }
     return false;
   }
 
-  // ── Panel Helpers ─────────────────────────────────────────────────
-
-  function clampValue(val, min, max) {
-    if (isNaN(val)) return min;
-    return Math.min(max, Math.max(min, val));
+  // Sync a slider control from a parsed numeric value.
+  function syncSlider(handle, numVal, def) {
+    const clamped = clampValue(numVal.num, def.min, def.max);
+    handle.slider.value = clamped;
+    handle.numInput.value = clamped;
+    if (handle.unitSelect && numVal.unit) {
+      setSelectValue(handle.unitSelect, numVal.unit);
+    }
   }
 
-  function rgbToHex(rgb) {
-    if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return '#000000';
-    if (rgb.startsWith('#')) return rgb.length === 7 ? rgb : rgb;
-    const match = rgb.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
-    if (!match) return '#000000';
-    const r = parseInt(match[1], 10);
-    const g = parseInt(match[2], 10);
-    const b = parseInt(match[3], 10);
-    return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+  // Sync a single control from a computed style value.
+  function syncControlFromComputed(property, computedValue) {
+    const entry = controlHandles[property];
+    if (!entry) return;
+
+    const { def, handle } = entry;
+
+    switch (def.type) {
+      case 'color': {
+        const hexVal = rgbToHex(computedValue);
+        handle.picker.value = hexVal;
+        handle.hex.value = hexVal;
+        break;
+      }
+      case 'slider': {
+        const numVal = parseNumericValue(computedValue);
+        syncSlider(handle, numVal, def);
+        break;
+      }
+      case 'select': {
+        // Font family needs special handling to strip quotes and match
+        if (property === 'font-family') {
+          const currentFont = computedValue.split(',')[0].trim().replace(/['"]/g, '');
+          if (!setSelectValue(handle.select, currentFont)) {
+            // Add current font as first option
+            const opt = document.createElement('option');
+            opt.value = currentFont;
+            opt.textContent = currentFont + ' (current)';
+            handle.select.insertBefore(opt, handle.select.firstChild);
+            handle.select.selectedIndex = 0;
+          }
+        } else {
+          setSelectValue(handle.select, computedValue);
+        }
+        break;
+      }
+    }
   }
 
-  function parseNumericValue(val) {
-    if (!val || val === 'auto' || val === 'none') return { num: 0, unit: 'px' };
-    const match = String(val).match(/^(-?[\d.]+)\s*(px|rem|em|%|vw|vh)?$/);
-    if (!match) return { num: 0, unit: 'px' };
-    return { num: parseFloat(match[1]), unit: match[2] || 'px' };
+  // Sync a single control from an authored source value.
+  function syncControlFromSource(property, sourceValue) {
+    const entry = controlHandles[property];
+    if (!entry) return;
+
+    const { def, handle } = entry;
+
+    if (def.type === 'slider') {
+      const numVal = parseNumericValue(sourceValue);
+      if (numVal.num > 0 || property !== 'font-size') {
+        syncSlider(handle, numVal, def);
+      }
+    }
+    // Colors and selects are already accurate from computed values
   }
+
+  // Initialize all panel controls from an element's computed styles.
+  function initPanelValues(el) {
+    const computed = window.getComputedStyle(el);
+
+    // Schema-driven controls
+    for (const [property, entry] of Object.entries(controlHandles)) {
+      const computedProp = entry.def.type === 'select' && property === 'font-family'
+        ? computed.fontFamily
+        : computed.getPropertyValue(property);
+      syncControlFromComputed(property, computedProp);
+    }
+
+    // Spacing (box model — not schema-driven)
+    const spacingProps = [
+      'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+      'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+    ];
+    spacingProps.forEach(prop => {
+      const input = boxModel.querySelector(`[data-property="${prop}"]`);
+      if (input) {
+        const val = parseNumericValue(computed.getPropertyValue(prop));
+        input.value = Math.round(val.num);
+      }
+    });
+  }
+
+  // Update panel controls from authored source properties.
+  function updatePanelFromSource(properties) {
+    for (const [property, value] of Object.entries(properties)) {
+      syncControlFromSource(property, value);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 7. PANEL SHOW / HIDE / POSITIONING
+  // ═══════════════════════════════════════════════════════════════════
 
   function positionPanel(elRect) {
     const panelWidth = 280;
@@ -1213,7 +855,6 @@
     );
 
     if (elCoversViewport) {
-      // Position panel in fixed top-right corner for very large elements
       left = vw - panelWidth - 12;
       top = 12;
     } else {
@@ -1230,7 +871,6 @@
         left = vw - panelWidth - 8;
       }
 
-      // Vertically align to the top of the element
       top = elRect.top;
     }
 
@@ -1248,107 +888,6 @@
     panel.style.top = top + 'px';
   }
 
-  function initPanelValues(el) {
-    const computed = window.getComputedStyle(el);
-
-    // Colors
-    bgColor.picker.value = rgbToHex(computed.backgroundColor);
-    bgColor.hex.value = bgColor.picker.value;
-
-    textColor.picker.value = rgbToHex(computed.color);
-    textColor.hex.value = textColor.picker.value;
-
-    borderColor.picker.value = rgbToHex(computed.borderColor);
-    borderColor.hex.value = borderColor.picker.value;
-
-    // Typography
-    const currentFont = computed.fontFamily.split(',')[0].trim().replace(/['"]/g, '');
-    const fontOptions = fontFamily.select.options;
-    let fontFound = false;
-    for (let i = 0; i < fontOptions.length; i++) {
-      if (fontOptions[i].value === currentFont) {
-        fontFamily.select.selectedIndex = i;
-        fontFound = true;
-        break;
-      }
-    }
-    if (!fontFound) {
-      // Add current font as first option
-      const opt = document.createElement('option');
-      opt.value = currentFont;
-      opt.textContent = currentFont + ' (current)';
-      fontFamily.select.insertBefore(opt, fontFamily.select.firstChild);
-      fontFamily.select.selectedIndex = 0;
-    }
-
-    const fsVal = parseNumericValue(computed.fontSize);
-    fontSize.slider.value = clampValue(fsVal.num, 8, 72);
-    fontSize.numInput.value = clampValue(fsVal.num, 8, 72);
-    if (fontSize.unitSelect) {
-      for (let i = 0; i < fontSize.unitSelect.options.length; i++) {
-        if (fontSize.unitSelect.options[i].value === fsVal.unit) {
-          fontSize.unitSelect.selectedIndex = i;
-          break;
-        }
-      }
-    }
-
-    const fwVal = computed.fontWeight;
-    for (let i = 0; i < fontWeight.select.options.length; i++) {
-      if (fontWeight.select.options[i].value === fwVal) {
-        fontWeight.select.selectedIndex = i;
-        break;
-      }
-    }
-
-    // Size
-    const wVal = parseNumericValue(computed.width);
-    widthCtrl.slider.value = clampValue(wVal.num, 0, 2000);
-    widthCtrl.numInput.value = clampValue(wVal.num, 0, 2000);
-    if (widthCtrl.unitSelect) {
-      for (let i = 0; i < widthCtrl.unitSelect.options.length; i++) {
-        if (widthCtrl.unitSelect.options[i].value === wVal.unit) {
-          widthCtrl.unitSelect.selectedIndex = i;
-          break;
-        }
-      }
-    }
-
-    const hVal = parseNumericValue(computed.height);
-    heightCtrl.slider.value = clampValue(hVal.num, 0, 2000);
-    heightCtrl.numInput.value = clampValue(hVal.num, 0, 2000);
-    if (heightCtrl.unitSelect) {
-      for (let i = 0; i < heightCtrl.unitSelect.options.length; i++) {
-        if (heightCtrl.unitSelect.options[i].value === hVal.unit) {
-          heightCtrl.unitSelect.selectedIndex = i;
-          break;
-        }
-      }
-    }
-
-    // Spacing (box model)
-    const spacingProps = [
-      'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-      'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-    ];
-    spacingProps.forEach(prop => {
-      const input = boxModel.querySelector(`[data-property="${prop}"]`);
-      if (input) {
-        const val = parseNumericValue(computed.getPropertyValue(prop));
-        input.value = Math.round(val.num);
-      }
-    });
-
-    // Effects
-    const brVal = parseNumericValue(computed.borderRadius);
-    borderRadius.slider.value = clampValue(brVal.num, 0, 50);
-    borderRadius.numInput.value = clampValue(brVal.num, 0, 50);
-
-    const opVal = parseFloat(computed.opacity);
-    opacity.slider.value = isNaN(opVal) ? 1 : opVal;
-    opacity.numInput.value = isNaN(opVal) ? 1 : opVal;
-  }
-
   function showPanel(el) {
     const rect = el.getBoundingClientRect();
     initPanelValues(el);
@@ -1358,82 +897,75 @@
     // Trigger reflow for transition
     panel.offsetHeight;
     panel.removeAttribute('data-opening');
-    panelVisible = true;
+    state.panelVisible = true;
   }
 
   function hidePanel() {
     panel.style.display = 'none';
-    panelVisible = false;
-    sourceData = null;
+    state.panelVisible = false;
+    state.sourceData = null;
     // Clear all debounce timers
-    Object.keys(debounceTimers).forEach(key => {
-      clearTimeout(debounceTimers[key]);
-      delete debounceTimers[key];
+    Object.keys(state.debounceTimers).forEach(key => {
+      clearTimeout(state.debounceTimers[key]);
+      delete state.debounceTimers[key];
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // 8. LIVE PREVIEW & CHANGE MESSAGING
+  // ═══════════════════════════════════════════════════════════════════
+
   function applyLivePreview(property, value) {
-    if (!selectedElement) return;
-    // Convert property name to camelCase for style assignment
-    const camelProp = property.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-    selectedElement.style[camelProp] = value;
+    if (!state.selectedElement) return;
+    state.selectedElement.style[cssToCamel(property)] = value;
   }
 
   function debounceSendChange(property, value) {
-    if (debounceTimers[property]) {
-      clearTimeout(debounceTimers[property]);
+    if (state.debounceTimers[property]) {
+      clearTimeout(state.debounceTimers[property]);
     }
-    debounceTimers[property] = setTimeout(() => {
-      delete debounceTimers[property];
+    state.debounceTimers[property] = setTimeout(() => {
+      delete state.debounceTimers[property];
       sendChangeMessage(property, value);
     }, DEBOUNCE_MS);
   }
 
   function sendChangeImmediate(property, value) {
-    if (debounceTimers[property]) {
-      clearTimeout(debounceTimers[property]);
-      delete debounceTimers[property];
+    if (state.debounceTimers[property]) {
+      clearTimeout(state.debounceTimers[property]);
+      delete state.debounceTimers[property];
     }
     sendChangeMessage(property, value);
   }
 
   function sendChangeMessage(property, value) {
-    if (!sourceData || !sourceData.selector) return;
+    if (!state.sourceData || !state.sourceData.selector) return;
     sendMessage({
       type: 'change',
-      file: sourceData.file,
-      selector: sourceData.selector,
+      file: state.sourceData.file,
+      selector: state.sourceData.selector,
       property: property,
       value: value,
-      line: sourceData.line || undefined,
+      line: state.sourceData.line || undefined,
     });
   }
 
-  // Check if a click target is inside the panel
-  function isPanelElement(el) {
-    if (!el) return false;
-    let node = el;
-    while (node) {
-      if (node === panel) return true;
-      node = node.parentNode;
-    }
-    return false;
-  }
-
-  // ── Event Handlers ─────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // 9. EVENT HANDLERS (hover, click, keyboard, drag, scroll)
+  // ═══════════════════════════════════════════════════════════════════
 
   function onMouseMove(e) {
-    if (!active) return;
+    if (!state.active) return;
 
     const target = e.target;
     if (isPolishElement(target)) {
       hideBox(hoverBox, hoverLabel);
-      hoveredElement = null;
+      state.hoveredElement = null;
       return;
     }
 
-    if (target === hoveredElement) return;
-    hoveredElement = target;
+    if (target === state.hoveredElement) return;
+    state.hoveredElement = target;
 
     const rect = target.getBoundingClientRect();
     hoverLabel.textContent = formatLabel(target);
@@ -1443,12 +975,12 @@
   function onMouseOut(e) {
     if (!e.relatedTarget || e.relatedTarget === document) {
       hideBox(hoverBox, hoverLabel);
-      hoveredElement = null;
+      state.hoveredElement = null;
     }
   }
 
   function onClick(e) {
-    if (!active) return;
+    if (!state.active) return;
 
     const target = e.target;
     if (isPolishElement(target)) return;
@@ -1457,7 +989,7 @@
     e.stopPropagation();
     e.stopImmediatePropagation();
 
-    if (selectedElement === target) {
+    if (state.selectedElement === target) {
       deselectElement();
       return;
     }
@@ -1466,7 +998,7 @@
   }
 
   function selectElement(el) {
-    selectedElement = el;
+    state.selectedElement = el;
     const rect = el.getBoundingClientRect();
 
     selectLabel.textContent = formatLabel(el);
@@ -1474,7 +1006,6 @@
     infoPanel.innerHTML = buildInfoHTML(el);
     positionInfoPanel(rect);
 
-    // Show manipulation panel
     showPanel(el);
 
     const { tag, id, classes } = describeElement(el);
@@ -1494,7 +1025,7 @@
   }
 
   function deselectElement() {
-    selectedElement = null;
+    state.selectedElement = null;
     hideBox(selectBox, selectLabel);
     infoPanel.style.display = 'none';
     hidePanel();
@@ -1502,17 +1033,17 @@
   }
 
   function onScroll() {
-    if (hoveredElement && active) {
-      const rect = hoveredElement.getBoundingClientRect();
-      hoverLabel.textContent = formatLabel(hoveredElement);
+    if (state.hoveredElement && state.active) {
+      const rect = state.hoveredElement.getBoundingClientRect();
+      hoverLabel.textContent = formatLabel(state.hoveredElement);
       positionBox(hoverBox, hoverLabel, rect);
     }
-    if (selectedElement) {
-      const rect = selectedElement.getBoundingClientRect();
-      selectLabel.textContent = formatLabel(selectedElement);
+    if (state.selectedElement) {
+      const rect = state.selectedElement.getBoundingClientRect();
+      selectLabel.textContent = formatLabel(state.selectedElement);
       positionBox(selectBox, selectLabel, rect);
       positionInfoPanel(rect);
-      if (panelVisible && !panelDragState) {
+      if (state.panelVisible && !state.panelDragState) {
         positionPanel(rect);
       }
     }
@@ -1532,21 +1063,21 @@
       toggleOverlay();
     }
 
-    if (active && selectedElement && e.key === 'Escape') {
+    if (state.active && state.selectedElement && e.key === 'Escape') {
       e.preventDefault();
       deselectElement();
     }
 
     // Tab / Shift+Tab: cycle to sibling elements
-    if (active && selectedElement && e.key === 'Tab') {
+    if (state.active && state.selectedElement && e.key === 'Tab') {
       e.preventDefault();
       e.stopPropagation();
-      const parent = selectedElement.parentElement;
+      const parent = state.selectedElement.parentElement;
       if (parent) {
         const siblings = Array.from(parent.children).filter(
           (c) => !isPolishElement(c) && c.nodeType === 1
         );
-        const currentIdx = siblings.indexOf(selectedElement);
+        const currentIdx = siblings.indexOf(state.selectedElement);
         if (currentIdx !== -1) {
           let nextIdx;
           if (e.shiftKey) {
@@ -1560,23 +1091,20 @@
     }
   }
 
-  // Keyboard shortcut hint element
-  const shortcutHint = document.createElement('div');
-  shortcutHint.className = 'polish-shortcut-hint';
-  const isMacHint = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-  shortcutHint.innerHTML = [
-    '<strong>Shortcuts:</strong>',
-    (isMacHint ? 'Cmd' : 'Ctrl') + '+Shift+P — Toggle overlay',
-    'Click — Select element',
-    'Esc — Deselect',
-    'Tab / Shift+Tab — Cycle siblings',
-  ].join('<br>');
-  shortcutHint.style.display = 'none';
-  shadow.appendChild(shortcutHint);
+  // Check if a click target is inside the panel
+  function isPanelElement(el) {
+    if (!el) return false;
+    let node = el;
+    while (node) {
+      if (node === panel) return true;
+      node = node.parentNode;
+    }
+    return false;
+  }
 
   function showShortcutHint() {
-    if (shortcutHintShown) return;
-    shortcutHintShown = true;
+    if (state.shortcutHintShown) return;
+    state.shortcutHintShown = true;
     shortcutHint.style.display = 'block';
     setTimeout(() => {
       shortcutHint.style.opacity = '0';
@@ -1588,9 +1116,9 @@
   }
 
   function toggleOverlay() {
-    active = !active;
+    state.active = !state.active;
 
-    if (active) {
+    if (state.active) {
       badge.className = 'polish-badge active';
       badge.textContent = 'Polish';
       showShortcutHint();
@@ -1601,12 +1129,14 @@
       hideBox(selectBox, selectLabel);
       infoPanel.style.display = 'none';
       hidePanel();
-      selectedElement = null;
-      hoveredElement = null;
+      state.selectedElement = null;
+      state.hoveredElement = null;
     }
   }
 
-  // ── WebSocket ──────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // 10. WEBSOCKET CLIENT
+  // ═══════════════════════════════════════════════════════════════════
 
   function connectWebSocket() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1655,68 +1185,68 @@
     }
   }
 
+  // ── Server message dispatch ───────────────────────────────────────
+
   function handleServerMessage(message) {
     switch (message.type) {
-      case 'source': {
-        const matchedRules = message.matchedRules || [];
-        const cssFiles = message.cssFiles || [];
-
-        // If no rules match and no selector, build a fallback source target
-        // The panel will still work with getComputedStyle values. When the user
-        // makes a change, we write a new rule to the first CSS file (or create one).
-        let file = message.file;
-        let selector = message.selector;
-        if (!selector && selectedElement) {
-          // Build a reasonable selector for creating a new rule
-          const desc = describeElement(selectedElement);
-          if (desc.id) {
-            selector = '#' + desc.id;
-          } else if (desc.classes.length) {
-            selector = '.' + desc.classes.join('.');
-          } else {
-            selector = desc.tag;
-          }
-          // Target the first CSS file, or a fallback
-          file = cssFiles[0] || 'polish-overrides.css';
-        }
-
-        sourceData = {
-          file: file,
-          selector: selector,
-          line: message.line,
-          properties: message.properties || {},
-          cssFiles: cssFiles,
-          matchedRules: matchedRules,
-        };
-
-        // Re-initialize panel values from source properties if available
-        if (selectedElement && message.properties) {
-          updatePanelFromSource(message.properties);
-        }
-
-        // Update shorthand badges
-        updateShorthandBadges(matchedRules);
-
-        // Update pseudo-class indicators
-        updatePseudoClassIndicators(matchedRules);
-
+      case 'source':
+        handleSourceMessage(message);
         break;
-      }
-
       case 'reload':
-        if (message.cssOnly && message.files) {
-          reloadCSS(message.files);
-        } else {
-          location.reload();
-        }
+        handleReloadMessage(message);
         break;
     }
   }
 
-  /**
-   * Update shorthand badges in the spacing section based on matched rules.
-   * When a rule uses a shorthand (padding, margin), show a badge next to the controls.
-   */
+  function handleSourceMessage(message) {
+    const matchedRules = message.matchedRules || [];
+    const cssFiles = message.cssFiles || [];
+
+    // If no rules match and no selector, build a fallback source target.
+    // The panel will still work with getComputedStyle values. When the user
+    // makes a change, we write a new rule to the first CSS file (or create one).
+    let file = message.file;
+    let selector = message.selector;
+    if (!selector && state.selectedElement) {
+      const desc = describeElement(state.selectedElement);
+      if (desc.id) {
+        selector = '#' + desc.id;
+      } else if (desc.classes.length) {
+        selector = '.' + desc.classes.join('.');
+      } else {
+        selector = desc.tag;
+      }
+      file = cssFiles[0] || 'polish-overrides.css';
+    }
+
+    state.sourceData = {
+      file: file,
+      selector: selector,
+      line: message.line,
+      properties: message.properties || {},
+      cssFiles: cssFiles,
+      matchedRules: matchedRules,
+    };
+
+    // Re-initialize panel values from source properties if available
+    if (state.selectedElement && message.properties) {
+      updatePanelFromSource(message.properties);
+    }
+
+    updateShorthandBadges(matchedRules);
+    updatePseudoClassIndicators(matchedRules);
+  }
+
+  function handleReloadMessage(message) {
+    if (message.cssOnly && message.files) {
+      reloadCSS(message.files);
+    } else {
+      location.reload();
+    }
+  }
+
+  // ── Badge / indicator updates ─────────────────────────────────────
+
   function updateShorthandBadges(matchedRules) {
     shorthandBadgesContainer.innerHTML = '';
     const shorthandProps = new Set();
@@ -1728,18 +1258,14 @@
     }
 
     for (const prop of shorthandProps) {
-      const badge = document.createElement('span');
-      badge.className = 'polish-shorthand-badge';
-      badge.textContent = prop + ' (shorthand)';
-      badge.title = 'This value was expanded from a shorthand declaration';
-      shorthandBadgesContainer.appendChild(badge);
+      const badgeEl = document.createElement('span');
+      badgeEl.className = 'polish-shorthand-badge';
+      badgeEl.textContent = prop + ' (shorthand)';
+      badgeEl.title = 'This value was expanded from a shorthand declaration';
+      shorthandBadgesContainer.appendChild(badgeEl);
     }
   }
 
-  /**
-   * Update pseudo-class indicators in the panel header area.
-   * Shows badges like "Has :hover styles" when matched rules contain pseudo-class selectors.
-   */
   function updatePseudoClassIndicators(matchedRules) {
     // Remove existing pseudo badges
     const existing = panel.querySelectorAll('.polish-pseudo-badge');
@@ -1758,62 +1284,16 @@
       const container = document.createElement('div');
       container.className = 'polish-pseudo-badges';
       for (const pc of pseudos) {
-        const badge = document.createElement('span');
-        badge.className = 'polish-pseudo-badge';
-        badge.textContent = 'Has ' + pc + ' styles';
-        container.appendChild(badge);
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'polish-pseudo-badge';
+        badgeEl.textContent = 'Has ' + pc + ' styles';
+        container.appendChild(badgeEl);
       }
-      // Insert after the panel header
       panelHeader.insertAdjacentElement('afterend', container);
     }
   }
 
-  function updatePanelFromSource(properties) {
-    // If the source resolution provides authored property values, use them
-    // to set controls more accurately than computed styles alone.
-    // Authored values may differ from computed (e.g., 'auto', percentages, em units).
-    if (properties['font-size']) {
-      const fsVal = parseNumericValue(properties['font-size']);
-      if (fsVal.num > 0) {
-        fontSize.slider.value = clampValue(fsVal.num, 8, 72);
-        fontSize.numInput.value = clampValue(fsVal.num, 8, 72);
-        if (fontSize.unitSelect) {
-          for (let i = 0; i < fontSize.unitSelect.options.length; i++) {
-            if (fontSize.unitSelect.options[i].value === fsVal.unit) {
-              fontSize.unitSelect.selectedIndex = i;
-              break;
-            }
-          }
-        }
-      }
-    }
-    if (properties['width']) {
-      const wVal = parseNumericValue(properties['width']);
-      widthCtrl.slider.value = clampValue(wVal.num, 0, 2000);
-      widthCtrl.numInput.value = clampValue(wVal.num, 0, 2000);
-      if (widthCtrl.unitSelect && wVal.unit) {
-        for (let i = 0; i < widthCtrl.unitSelect.options.length; i++) {
-          if (widthCtrl.unitSelect.options[i].value === wVal.unit) {
-            widthCtrl.unitSelect.selectedIndex = i;
-            break;
-          }
-        }
-      }
-    }
-    if (properties['height']) {
-      const hVal = parseNumericValue(properties['height']);
-      heightCtrl.slider.value = clampValue(hVal.num, 0, 2000);
-      heightCtrl.numInput.value = clampValue(hVal.num, 0, 2000);
-      if (heightCtrl.unitSelect && hVal.unit) {
-        for (let i = 0; i < heightCtrl.unitSelect.options.length; i++) {
-          if (heightCtrl.unitSelect.options[i].value === hVal.unit) {
-            heightCtrl.unitSelect.selectedIndex = i;
-            break;
-          }
-        }
-      }
-    }
-  }
+  // ── CSS hot-reload ────────────────────────────────────────────────
 
   function reloadCSS(files) {
     const links = document.querySelectorAll('link[rel="stylesheet"]');
@@ -1824,32 +1304,29 @@
       const shouldReload = files.some((f) => href.includes(f));
       if (!shouldReload) continue;
 
-      // Build the cache-busted URL from the original href (strip any previous _polish param)
       const url = new URL(href, location.href);
       url.searchParams.set('_polish', Date.now());
 
-      // Clone the link to create a fresh element; the browser fetches the new stylesheet
       const newLink = link.cloneNode(false);
       newLink.href = url.toString();
 
-      // Once the new stylesheet loads, remove the old one to avoid FOUC
       newLink.onload = () => {
         link.remove();
       };
 
-      // If the new link fails to load, keep the old one in place
       newLink.onerror = () => {
         newLink.remove();
       };
 
-      // Insert the new link right after the old one so it takes precedence
       link.parentNode.insertBefore(newLink, link.nextSibling);
     }
   }
 
-  // ── Initialize ─────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // 11. INITIALIZATION
+  // ═══════════════════════════════════════════════════════════════════
 
-  // Panel click handler — intercept clicks within the shadow root on the panel
+  // Intercept clicks within the shadow root on the panel
   panel.addEventListener('mousedown', (e) => {
     e.stopPropagation();
   });

@@ -7,24 +7,33 @@ import httpProxy from 'http-proxy';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const POLISH_PREFIX = '/__polish__/';
+
 const OVERLAY_JS_PATH = path.join(__dirname, 'overlay', 'overlay.js');
 const OVERLAY_CSS_PATH = path.join(__dirname, 'overlay', 'overlay.css');
+const PANEL_STYLES_PATH = path.join(__dirname, 'overlay', 'panel-styles.css');
 
-const INJECT_SCRIPT = `<script src="/__polish__/overlay.js"></script>
-<link rel="stylesheet" href="/__polish__/overlay.css">
+const INJECT_SCRIPT = `<script src="${POLISH_PREFIX}overlay.js"></script>
+<link rel="stylesheet" href="${POLISH_PREFIX}overlay.css">
 </body>`;
+
+// ── Small helpers ─────────────────────────────────────────────────
 
 function servePolishAsset(req, res) {
   const urlPath = req.url.split('?')[0];
 
-  if (urlPath === '/__polish__/overlay.js') {
-    const content = fs.readFileSync(OVERLAY_JS_PATH, 'utf-8');
+  if (urlPath === `${POLISH_PREFIX}overlay.js`) {
+    let content = fs.readFileSync(OVERLAY_JS_PATH, 'utf-8');
+    // Inline the Shadow DOM stylesheet — overlay.js uses a __PANEL_STYLES__
+    // placeholder that we replace with the actual CSS at serve time.
+    const panelStyles = fs.readFileSync(PANEL_STYLES_PATH, 'utf-8');
+    content = content.replace('__PANEL_STYLES__', panelStyles.replace(/`/g, '\\`').replace(/\$/g, '\\$'));
     res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
     res.end(content);
     return true;
   }
 
-  if (urlPath === '/__polish__/overlay.css') {
+  if (urlPath === `${POLISH_PREFIX}overlay.css`) {
     const content = fs.readFileSync(OVERLAY_CSS_PATH, 'utf-8');
     res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
     res.end(content);
@@ -60,6 +69,73 @@ function injectOverlay(html) {
   return html.slice(0, bodyCloseIndex) + INJECT_SCRIPT;
 }
 
+// ── Extracted concerns ────────────────────────────────────────────
+
+/**
+ * Intercept an HTML proxy response: decompress, inject overlay, send.
+ */
+function handleHtmlResponse(proxyRes, res) {
+  const encoding = proxyRes.headers['content-encoding'];
+  const decompressor = getDecompressor(encoding);
+  const chunks = [];
+
+  const source = decompressor ? proxyRes.pipe(decompressor) : proxyRes;
+
+  source.on('data', (chunk) => {
+    chunks.push(chunk);
+  });
+
+  source.on('end', () => {
+    let html = Buffer.concat(chunks).toString('utf-8');
+    html = injectOverlay(html);
+
+    const responseHeaders = { ...proxyRes.headers };
+    delete responseHeaders['content-encoding'];
+    delete responseHeaders['content-length'];
+    delete responseHeaders['transfer-encoding'];
+    responseHeaders['content-length'] = Buffer.byteLength(html);
+
+    res.writeHead(proxyRes.statusCode, responseHeaders);
+    res.end(html);
+  });
+
+  source.on('error', (err) => {
+    console.error('Decompression error:', err.message);
+    res.writeHead(502, { 'Content-Type': 'text/plain' });
+    res.end('Polish proxy error: failed to decompress response');
+  });
+}
+
+/**
+ * Render the "upstream unavailable" error page.
+ */
+function handleProxyError(res, targetUrl, err) {
+  if (!res || res.headersSent) return;
+
+  res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(
+    `<html><body style="font-family:system-ui;padding:2rem">` +
+      `<h1>Polish — Upstream Unavailable</h1>` +
+      `<p>Could not reach <code>${targetUrl}</code></p>` +
+      `<p style="color:#888">${err.message}</p>` +
+      `</body></html>`
+  );
+}
+
+/**
+ * Build the HTTP request handler that serves Polish assets or proxies.
+ */
+function createRequestHandler(proxy) {
+  return (req, res) => {
+    if (req.url.startsWith(POLISH_PREFIX)) {
+      if (servePolishAsset(req, res)) return;
+    }
+    proxy.web(req, res);
+  };
+}
+
+// ── Factory ───────────────────────────────────────────────────────
+
 export function createProxyServer(config) {
   const proxy = httpProxy.createProxyServer({
     target: config.targetUrl,
@@ -73,62 +149,18 @@ export function createProxyServer(config) {
       proxyRes.pipe(res);
       return;
     }
-
-    const encoding = proxyRes.headers['content-encoding'];
-    const decompressor = getDecompressor(encoding);
-    const chunks = [];
-
-    const source = decompressor ? proxyRes.pipe(decompressor) : proxyRes;
-
-    source.on('data', (chunk) => {
-      chunks.push(chunk);
-    });
-
-    source.on('end', () => {
-      let html = Buffer.concat(chunks).toString('utf-8');
-      html = injectOverlay(html);
-
-      const responseHeaders = { ...proxyRes.headers };
-      delete responseHeaders['content-encoding'];
-      delete responseHeaders['content-length'];
-      delete responseHeaders['transfer-encoding'];
-
-      responseHeaders['content-length'] = Buffer.byteLength(html);
-
-      res.writeHead(proxyRes.statusCode, responseHeaders);
-      res.end(html);
-    });
-
-    source.on('error', (err) => {
-      console.error('Decompression error:', err.message);
-      res.writeHead(502, { 'Content-Type': 'text/plain' });
-      res.end('Polish proxy error: failed to decompress response');
-    });
+    handleHtmlResponse(proxyRes, res);
   });
 
   proxy.on('error', (err, req, res) => {
-    if (res && !res.headersSent) {
-      res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(
-        `<html><body style="font-family:system-ui;padding:2rem">` +
-          `<h1>Polish — Upstream Unavailable</h1>` +
-          `<p>Could not reach <code>${config.targetUrl}</code></p>` +
-          `<p style="color:#888">${err.message}</p>` +
-          `</body></html>`
-      );
-    }
+    handleProxyError(res, config.targetUrl, err);
   });
 
-  const server = http.createServer((req, res) => {
-    if (req.url.startsWith('/__polish__/')) {
-      if (servePolishAsset(req, res)) return;
-    }
-    proxy.web(req, res);
-  });
+  const server = http.createServer(createRequestHandler(proxy));
 
   server.on('upgrade', (req, socket, head) => {
-    if (req.url === '/__polish__/ws') {
-      return;
+    if (req.url === `${POLISH_PREFIX}ws`) {
+      return; // Handled by the WebSocket server
     }
     proxy.ws(req, socket, head);
   });

@@ -3,171 +3,32 @@ import path from 'node:path';
 import postcss from 'postcss';
 import * as htmlparser2 from 'htmlparser2';
 
-// ── Specificity ─────────────────────────────────────────────────────
+import {
+  calculateSpecificity,
+  compareSpecificity,
+  detectPseudoClasses,
+  matchesSelector,
+  parseInlineStyles,
+} from './css-utils.js';
+
+// Re-export for public API consumers
+export { calculateSpecificity, compareSpecificity, detectPseudoClasses };
+
+// ── Constants ───────────────────────────────────────────────────────
+
+const SKIP_DIRECTORIES = new Set(['node_modules', '.git', '.next', 'dist', 'build', '.cache']);
+const SOURCE_EXTENSIONS = new Set(['.css', '.html', '.htm']);
+
+// ── CSS Rule Extraction ─────────────────────────────────────────────
 
 /**
- * Calculate CSS specificity for a selector string.
- * Returns [inline, ids, classes, types] tuple.
- */
-export function calculateSpecificity(selector) {
-  let ids = 0;
-  let classes = 0;
-  let types = 0;
-
-  // Remove :not() wrapper but keep its contents for specificity
-  const withoutNot = selector.replace(/:not\(([^)]*)\)/g, ' $1 ');
-
-  // Remove attribute selectors content, count them as classes
-  const withoutAttrs = withoutNot.replace(/\[[^\]]*\]/g, () => {
-    classes++;
-    return '';
-  });
-
-  // Remove pseudo-elements (::before, ::after, etc.) — count as type
-  const withoutPseudoElements = withoutAttrs.replace(/::[a-zA-Z-]+/g, () => {
-    types++;
-    return '';
-  });
-
-  // Remove pseudo-classes (:hover, :focus, etc.) — count as class
-  const withoutPseudoClasses = withoutPseudoElements.replace(/:[a-zA-Z-]+/g, () => {
-    classes++;
-    return '';
-  });
-
-  // Count ID selectors
-  const idMatches = withoutPseudoClasses.match(/#[a-zA-Z_-][a-zA-Z0-9_-]*/g);
-  if (idMatches) ids += idMatches.length;
-
-  // Count class selectors
-  const classMatches = withoutPseudoClasses.match(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g);
-  if (classMatches) classes += classMatches.length;
-
-  // Remove IDs and classes to count remaining type selectors
-  const stripped = withoutPseudoClasses
-    .replace(/#[a-zA-Z_-][a-zA-Z0-9_-]*/g, '')
-    .replace(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g, '')
-    .replace(/[>+~*,]/g, ' ')
-    .trim();
-
-  const typeMatches = stripped.match(/[a-zA-Z][a-zA-Z0-9-]*/g);
-  if (typeMatches) types += typeMatches.length;
-
-  return [0, ids, classes, types];
-}
-
-/**
- * Compare two specificity tuples. Returns positive if a > b, negative if a < b, 0 if equal.
- */
-export function compareSpecificity(a, b) {
-  for (let i = 0; i < 4; i++) {
-    if (a[i] !== b[i]) return a[i] - b[i];
-  }
-  return 0;
-}
-
-// ── Selector Matching ───────────────────────────────────────────────
-
-/**
- * Parse a compound selector (no combinators) into its parts.
- * e.g. "div.card#main" => { tag: "div", id: "main", classes: ["card"] }
- */
-function parseCompoundSelector(compound) {
-  const result = { tag: null, id: null, classes: [] };
-  const trimmed = compound.trim();
-  if (!trimmed || trimmed === '*') return result;
-
-  // Extract IDs
-  const idMatch = trimmed.match(/#([a-zA-Z_-][a-zA-Z0-9_-]*)/g);
-  if (idMatch) {
-    result.id = idMatch[idMatch.length - 1].slice(1);
-  }
-
-  // Extract classes
-  const classMatches = trimmed.match(/\.([a-zA-Z_-][a-zA-Z0-9_-]*)/g);
-  if (classMatches) {
-    result.classes = classMatches.map((c) => c.slice(1));
-  }
-
-  // Extract tag — must be the first thing if present, before any . or #
-  const tagMatch = trimmed.match(/^([a-zA-Z][a-zA-Z0-9-]*)/);
-  if (tagMatch) {
-    result.tag = tagMatch[1].toLowerCase();
-  }
-
-  return result;
-}
-
-/**
- * Test if an element (described by { tag, id, classes }) matches a single compound selector.
- */
-function matchesCompound(element, compound) {
-  const sel = parseCompoundSelector(compound);
-
-  if (sel.tag && sel.tag !== element.tag?.toLowerCase()) return false;
-  if (sel.id && sel.id !== element.id) return false;
-  for (const cls of sel.classes) {
-    if (!element.classes?.includes(cls)) return false;
-  }
-
-  return true;
-}
-
-/**
- * Test if an element matches a full selector string.
+ * Parse CSS source with PostCSS and extract all rule records.
  *
- * We split on commas (selector groups) and test each.
- * For descendant/child/sibling combinators, we can only reliably match
- * the rightmost compound (the key selector) since we don't have full DOM context.
- * We match the key selector and treat it as a match — specificity will rank results.
+ * Each record contains the selector, file origin, line number,
+ * specificity, declared properties, !important flags, enclosing
+ * media query (if any), pseudo-classes, and ordering indices.
  */
-function matchesSelector(element, selectorStr) {
-  // Handle selector groups (comma-separated)
-  const groups = selectorStr.split(',').map((s) => s.trim());
-
-  for (const group of groups) {
-    // Split by combinators to get individual compounds
-    // We match against the last compound (the key selector)
-    const parts = group.split(/\s*[>+~ ]\s*/).filter(Boolean);
-    const keySelector = parts[parts.length - 1];
-
-    if (matchesCompound(element, keySelector)) return true;
-  }
-
-  return false;
-}
-
-// ── CSS Rule Map ────────────────────────────────────────────────────
-
-/**
- * Detect pseudo-class selectors in a selector string.
- * Returns an array of pseudo-class names (e.g., [':hover', ':focus']).
- */
-export function detectPseudoClasses(selectorStr) {
-  const pseudos = [];
-  // Match pseudo-classes (single colon) but not pseudo-elements (double colon)
-  const matches = selectorStr.match(/(?<!:):[a-zA-Z-]+/g);
-  if (matches) {
-    for (const m of matches) {
-      // Exclude :not() wrapper — it's a functional pseudo-class but not a state
-      if (m !== ':not') {
-        pseudos.push(m);
-      }
-    }
-  }
-  return [...new Set(pseudos)];
-}
-
-/**
- * Parse CSS source with PostCSS and extract all rules.
- * Returns an array of rule records.
- *
- * @param {string} cssContent - CSS text
- * @param {string} filePath - Source file path
- * @param {number} lineOffset - Line offset for rules inside HTML <style> blocks
- * @param {number} fileIndex - Index for source-order tiebreaking across files
- */
-function parseCSSRules(cssContent, filePath, lineOffset = 0, fileIndex = 0) {
+function extractRulesFromCSS(cssContent, filePath, lineOffset = 0, fileIndex = 0) {
   const rules = [];
   let root;
 
@@ -193,18 +54,7 @@ function parseCSSRules(cssContent, filePath, lineOffset = 0, fileIndex = 0) {
     const line = (rule.source?.start?.line || 1) + lineOffset;
     const selector = rule.selector;
 
-    // Detect the enclosing @media query, if any
-    let mediaQuery = null;
-    let parent = rule.parent;
-    while (parent) {
-      if (parent.type === 'atrule' && parent.name === 'media') {
-        mediaQuery = parent.params;
-        break;
-      }
-      parent = parent.parent;
-    }
-
-    // Detect pseudo-class selectors
+    const mediaQuery = findEnclosingMediaQuery(rule);
     const pseudoClasses = detectPseudoClasses(selector);
 
     rules.push({
@@ -224,11 +74,25 @@ function parseCSSRules(cssContent, filePath, lineOffset = 0, fileIndex = 0) {
   return rules;
 }
 
+/**
+ * Walk up the PostCSS AST to find the nearest enclosing @media query.
+ */
+function findEnclosingMediaQuery(node) {
+  let parent = node.parent;
+  while (parent) {
+    if (parent.type === 'atrule' && parent.name === 'media') {
+      return parent.params;
+    }
+    parent = parent.parent;
+  }
+  return null;
+}
+
 // ── HTML Parsing ────────────────────────────────────────────────────
 
 /**
  * Parse an HTML file to extract:
- * - <style> block contents (parsed as CSS with correct line offsets)
+ * - <style> block contents (with line offsets for accurate source mapping)
  * - Inline style attributes with element info
  * - <link rel="stylesheet"> hrefs
  */
@@ -247,8 +111,6 @@ function parseHTMLFile(htmlContent, filePath) {
       onopentag(name, attribs) {
         if (name === 'style') {
           inStyleTag = true;
-          // Track the line where the <style> tag opens.
-          // Content starts on the next line (or same line after the tag).
           styleStartLine = currentLine;
           styleContent = '';
         }
@@ -258,13 +120,10 @@ function parseHTMLFile(htmlContent, filePath) {
         }
 
         if (attribs.style) {
-          const tag = name.toLowerCase();
-          const id = attribs.id || '';
-          const classes = attribs.class ? attribs.class.split(/\s+/).filter(Boolean) : [];
           inlineStyles.push({
-            tag,
-            id,
-            classes,
+            tag: name.toLowerCase(),
+            id: attribs.id || '',
+            classes: attribs.class ? attribs.class.split(/\s+/).filter(Boolean) : [],
             style: attribs.style,
             file: filePath,
             line: currentLine,
@@ -275,7 +134,6 @@ function parseHTMLFile(htmlContent, filePath) {
         if (inStyleTag) {
           styleContent += text;
         }
-        // Count newlines in text for line tracking
         const newlines = (text.match(/\n/g) || []).length;
         currentLine += newlines;
       },
@@ -304,32 +162,256 @@ function parseHTMLFile(htmlContent, filePath) {
   return { styleBlocks, inlineStyles, linkedStylesheets };
 }
 
-// ── Parse Inline Style String ───────────────────────────────────────
+// ── Source Scanning ─────────────────────────────────────────────────
 
-function parseInlineStyles(styleStr) {
-  const properties = {};
-  if (!styleStr) return properties;
+/**
+ * Scan a single CSS file and return its extracted rules.
+ */
+function scanCssFile(filePath, content, fileIndex) {
+  return extractRulesFromCSS(content, filePath, 0, fileIndex);
+}
 
-  // Wrap in a dummy rule so PostCSS can parse it
+/**
+ * Scan a single HTML file: extract rules from <style> blocks,
+ * collect inline styles, and resolve <link>ed stylesheets.
+ *
+ * Returns { rules, inlineStyles, linkedCssFiles } where linkedCssFiles
+ * is an array of resolved absolute paths for any <link rel="stylesheet"> elements.
+ */
+function scanHtmlFile(filePath, content, startFileIndex) {
+  const { styleBlocks, inlineStyles, linkedStylesheets } = parseHTMLFile(content, filePath);
+  const rules = [];
+  let fileIndex = startFileIndex;
+
+  for (const block of styleBlocks) {
+    rules.push(...extractRulesFromCSS(block.content, block.file, block.startLine, fileIndex++));
+  }
+
+  const linkedCssFiles = linkedStylesheets
+    .map((href) => path.resolve(path.dirname(filePath), href))
+    .filter((cssPath) => fs.existsSync(cssPath));
+
+  return { rules, inlineStyles, linkedCssFiles, nextFileIndex: fileIndex };
+}
+
+/**
+ * Merge rules from a linked stylesheet, deduplicating against rules
+ * already collected from directly scanning that CSS file.
+ */
+function mergeLinkedStylesheetRules(cssPath, existingRules, fileIndex) {
+  let cssContent;
   try {
-    const root = postcss.parse(`__inline__ { ${styleStr} }`);
-    root.walkDecls((decl) => {
-      properties[decl.prop] = decl.value;
-    });
+    cssContent = fs.readFileSync(cssPath, 'utf-8');
+  } catch (err) {
+    console.error(`Polish: failed to read linked stylesheet ${cssPath}:`, err.message);
+    return [];
+  }
+
+  const rules = extractRulesFromCSS(cssContent, cssPath, 0, fileIndex);
+
+  const existingKeys = new Set(
+    existingRules
+      .filter((r) => r.file === cssPath)
+      .map((r) => `${r.selector}:${r.line}`)
+  );
+
+  return rules.filter((rule) => !existingKeys.has(`${rule.selector}:${rule.line}`));
+}
+
+// ── File Collection ─────────────────────────────────────────────────
+
+/**
+ * Recursively collect source files (.css, .html, .htm) from a directory.
+ * Skips common non-source directories (node_modules, .git, etc.).
+ */
+function collectSourceFiles(dir) {
+  const results = [];
+
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    // Fallback: simple split parsing
-    const parts = styleStr.split(';').filter(Boolean);
-    for (const part of parts) {
-      const colonIdx = part.indexOf(':');
-      if (colonIdx > 0) {
-        const prop = part.slice(0, colonIdx).trim();
-        const val = part.slice(colonIdx + 1).trim();
-        if (prop) properties[prop] = val;
+    return results;
+  }
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') && entry.name !== '.') continue;
+    if (SKIP_DIRECTORIES.has(entry.name)) continue;
+
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      results.push(...collectSourceFiles(fullPath));
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (SOURCE_EXTENSIONS.has(ext)) {
+        results.push(fullPath);
       }
     }
   }
 
-  return properties;
+  return results;
+}
+
+// ── Cascade Resolution ──────────────────────────────────────────────
+
+/**
+ * Collect all rules that match the given element description.
+ */
+function collectMatchingRules(element, allRules) {
+  const matched = [];
+
+  for (const rule of allRules) {
+    if (matchesSelector(element, rule.selector)) {
+      matched.push({
+        selector: rule.selector,
+        file: rule.file,
+        line: rule.line,
+        specificity: rule.specificity,
+        properties: { ...rule.properties },
+        importantProps: { ...(rule.importantProps || {}) },
+        mediaQuery: rule.mediaQuery || null,
+        pseudoClasses: rule.pseudoClasses || [],
+        fileIndex: rule.fileIndex || 0,
+        ruleIndex: rule.ruleIndex || 0,
+      });
+    }
+  }
+
+  return matched;
+}
+
+/**
+ * Sort matched rules by the CSS cascade:
+ * specificity first, then source order (file index, then rule index).
+ */
+function sortByCascade(matchedRules) {
+  matchedRules.sort((a, b) => {
+    const specCmp = compareSpecificity(a.specificity, b.specificity);
+    if (specCmp !== 0) return specCmp;
+    if (a.fileIndex !== b.fileIndex) return a.fileIndex - b.fileIndex;
+    return a.ruleIndex - b.ruleIndex;
+  });
+}
+
+/**
+ * Walk the sorted rules and compute the winning value for each property,
+ * respecting !important declarations.
+ *
+ * Returns { properties, propertyWinner } where propertyWinner maps
+ * each property name to the index of its winning rule in matchedRules.
+ */
+function computeWinningProperties(matchedRules) {
+  const properties = {};
+  const propertyWinner = {};
+
+  for (let i = 0; i < matchedRules.length; i++) {
+    const rule = matchedRules[i];
+    for (const [prop, val] of Object.entries(rule.properties)) {
+      const isImportant = rule.importantProps[prop] || false;
+      const currentWinnerIdx = propertyWinner[prop];
+
+      if (currentWinnerIdx === undefined) {
+        properties[prop] = val;
+        propertyWinner[prop] = i;
+        continue;
+      }
+
+      const currentIsImportant = matchedRules[currentWinnerIdx].importantProps[prop] || false;
+
+      // !important always beats non-important; non-important never beats !important.
+      // Within the same importance level, later in cascade wins (array is sorted).
+      if (isImportant && !currentIsImportant) {
+        properties[prop] = val;
+        propertyWinner[prop] = i;
+      } else if (!isImportant && currentIsImportant) {
+        // Non-important cannot override !important -- skip
+      } else {
+        properties[prop] = val;
+        propertyWinner[prop] = i;
+      }
+    }
+  }
+
+  return { properties, propertyWinner };
+}
+
+/**
+ * Apply inline styles as the highest-specificity layer.
+ * Inline styles override everything except CSS !important declarations.
+ */
+function applyInlineStyleOverrides(matchedRules, properties, propertyWinner, inlineStyleStr, inlineStyles, element) {
+  if (!inlineStyleStr) return;
+
+  const inlineProps = parseInlineStyles(inlineStyleStr);
+  if (Object.keys(inlineProps).length === 0) return;
+
+  // Try to find a matching recorded inline style entry from HTML scanning
+  const recorded = inlineStyles.find(
+    (is) =>
+      is.tag === element.tag &&
+      is.id === element.id &&
+      is.classes.length === element.classes.length &&
+      is.classes.every((c) => element.classes.includes(c))
+  );
+
+  const inlineIdx = matchedRules.length;
+  matchedRules.push({
+    selector: '[inline]',
+    file: recorded?.file || 'unknown',
+    line: recorded?.line || 0,
+    specificity: [1, 0, 0, 0],
+    properties: inlineProps,
+    importantProps: {},
+    mediaQuery: null,
+    pseudoClasses: [],
+    fileIndex: Infinity,
+    ruleIndex: 0,
+  });
+
+  for (const [prop, val] of Object.entries(inlineProps)) {
+    const currentWinnerIdx = propertyWinner[prop];
+    if (currentWinnerIdx === undefined) {
+      properties[prop] = val;
+      propertyWinner[prop] = inlineIdx;
+    } else {
+      const currentIsImportant = matchedRules[currentWinnerIdx].importantProps[prop] || false;
+      if (!currentIsImportant) {
+        properties[prop] = val;
+        propertyWinner[prop] = inlineIdx;
+      }
+      // CSS !important beats inline styles
+    }
+  }
+}
+
+/**
+ * Annotate each property in each matched rule with its cascade outcome:
+ * - value: the declared value
+ * - important: whether the declaration uses !important
+ * - overridden: whether a higher-priority rule wins for this property
+ *
+ * Also strips internal bookkeeping fields (importantProps, fileIndex, ruleIndex)
+ * from the response.
+ */
+function annotateMatchedRules(matchedRules, propertyWinner) {
+  for (let i = 0; i < matchedRules.length; i++) {
+    const rule = matchedRules[i];
+    const annotatedProps = {};
+
+    for (const [prop, val] of Object.entries(rule.properties)) {
+      annotatedProps[prop] = {
+        value: val,
+        important: rule.importantProps[prop] || false,
+        overridden: propertyWinner[prop] !== i,
+      };
+    }
+    rule.annotatedProperties = annotatedProps;
+
+    delete rule.importantProps;
+    delete rule.fileIndex;
+    delete rule.ruleIndex;
+  }
 }
 
 // ── Resolver Class ──────────────────────────────────────────────────
@@ -350,7 +432,7 @@ export class Resolver {
     this.inlineStyles = [];
     this.cssFiles = [];
 
-    const files = this._collectFiles(this.projectDir);
+    const files = collectSourceFiles(this.projectDir);
     let fileIndex = 0;
 
     for (const filePath of files) {
@@ -359,51 +441,27 @@ export class Resolver {
 
       if (ext === '.css') {
         this.cssFiles.push(filePath);
-        const rules = parseCSSRules(content, filePath, 0, fileIndex++);
-        this.rules.push(...rules);
+        this.rules.push(...scanCssFile(filePath, content, fileIndex++));
       } else if (ext === '.html' || ext === '.htm') {
-        const { styleBlocks, inlineStyles, linkedStylesheets } = parseHTMLFile(
-          content,
-          filePath
-        );
+        const result = scanHtmlFile(filePath, content, fileIndex);
+        fileIndex = result.nextFileIndex;
 
-        // Parse <style> blocks
-        for (const block of styleBlocks) {
-          const rules = parseCSSRules(block.content, block.file, block.startLine, fileIndex++);
-          this.rules.push(...rules);
-        }
+        this.rules.push(...result.rules);
+        this.inlineStyles.push(...result.inlineStyles);
 
-        // Store inline styles
-        this.inlineStyles.push(...inlineStyles);
-
-        // Resolve <link> stylesheet references
-        for (const href of linkedStylesheets) {
-          const cssPath = path.resolve(path.dirname(filePath), href);
-          if (fs.existsSync(cssPath)) {
-            if (!this.cssFiles.includes(cssPath)) {
-              this.cssFiles.push(cssPath);
-            }
-            try {
-              const cssContent = fs.readFileSync(cssPath, 'utf-8');
-              const rules = parseCSSRules(cssContent, cssPath, 0, fileIndex++);
-              // Deduplicate — the CSS file might already be scanned directly
-              const existing = new Set(this.rules.filter((r) => r.file === cssPath).map((r) => `${r.selector}:${r.line}`));
-              for (const rule of rules) {
-                if (!existing.has(`${rule.selector}:${rule.line}`)) {
-                  this.rules.push(rule);
-                }
-              }
-            } catch (err) {
-              console.error(`Polish: failed to read linked stylesheet ${cssPath}:`, err.message);
-            }
+        for (const cssPath of result.linkedCssFiles) {
+          if (!this.cssFiles.includes(cssPath)) {
+            this.cssFiles.push(cssPath);
           }
+          const deduped = mergeLinkedStylesheetRules(cssPath, this.rules, fileIndex++);
+          this.rules.push(...deduped);
         }
       }
     }
   }
 
   /**
-   * Alias for scan() — M5 watcher calls this when files change.
+   * Alias for scan() -- the watcher calls this when files change.
    */
   rescan() {
     this.scan();
@@ -412,8 +470,8 @@ export class Resolver {
   /**
    * Resolve an element to its matching CSS rules and source locations.
    *
-   * Enhanced for M6: !important, media queries, overridden flags, source order,
-   * pseudo-class indicators, and no-match fallback with cssFiles.
+   * Pipeline: collect matching rules -> sort by cascade -> compute winners
+   *   -> overlay inline styles -> annotate overrides -> shape response.
    *
    * @param {{ tag: string, id: string, classes: string[], inlineStyles: string }} elementInfo
    * @returns {{ file, line, selector, properties, matchedRules, cssFiles }}
@@ -426,138 +484,25 @@ export class Resolver {
       classes: classes || [],
     };
 
-    const matchedRules = [];
+    // 1. Collect all rules whose selector matches this element
+    const matchedRules = collectMatchingRules(element, this.rules);
 
-    // Find matching CSS rules
-    for (const rule of this.rules) {
-      if (matchesSelector(element, rule.selector)) {
-        matchedRules.push({
-          selector: rule.selector,
-          file: rule.file,
-          line: rule.line,
-          specificity: rule.specificity,
-          properties: { ...rule.properties },
-          importantProps: { ...(rule.importantProps || {}) },
-          mediaQuery: rule.mediaQuery || null,
-          pseudoClasses: rule.pseudoClasses || [],
-          fileIndex: rule.fileIndex || 0,
-          ruleIndex: rule.ruleIndex || 0,
-        });
-      }
-    }
+    // 2. Sort by specificity, then source order
+    sortByCascade(matchedRules);
 
-    // Sort by specificity (ascending), then source order for equal specificity.
-    // Later files and later rules win for equal specificity (CSS cascade).
-    matchedRules.sort((a, b) => {
-      const specCmp = compareSpecificity(a.specificity, b.specificity);
-      if (specCmp !== 0) return specCmp;
-      // Source order: compare fileIndex then ruleIndex
-      if (a.fileIndex !== b.fileIndex) return a.fileIndex - b.fileIndex;
-      return a.ruleIndex - b.ruleIndex;
-    });
+    // 3. Walk the cascade to determine the winning value for each property
+    const { properties, propertyWinner } = computeWinningProperties(matchedRules);
 
-    // Build computed properties from cascade, respecting !important
-    const properties = {};
-    // Track which rule is the active winner for each property
-    const propertyWinner = {}; // prop -> index in matchedRules
+    // 4. Overlay inline styles (highest specificity except !important CSS)
+    applyInlineStyleOverrides(
+      matchedRules, properties, propertyWinner,
+      inlineStyleStr, this.inlineStyles, element
+    );
 
-    for (let i = 0; i < matchedRules.length; i++) {
-      const rule = matchedRules[i];
-      for (const [prop, val] of Object.entries(rule.properties)) {
-        const isImportant = rule.importantProps[prop] || false;
-        const currentWinner = propertyWinner[prop];
+    // 5. Annotate each rule's properties with override/important status
+    annotateMatchedRules(matchedRules, propertyWinner);
 
-        if (currentWinner === undefined) {
-          // First rule to declare this property
-          properties[prop] = val;
-          propertyWinner[prop] = i;
-        } else {
-          const currentRule = matchedRules[currentWinner];
-          const currentIsImportant = currentRule.importantProps[prop] || false;
-
-          if (isImportant && !currentIsImportant) {
-            // !important always wins over non-important
-            properties[prop] = val;
-            propertyWinner[prop] = i;
-          } else if (!isImportant && currentIsImportant) {
-            // Non-important cannot override !important
-          } else {
-            // Same importance level: later in cascade wins (already sorted)
-            properties[prop] = val;
-            propertyWinner[prop] = i;
-          }
-        }
-      }
-    }
-
-    // Handle inline styles — highest specificity (unless !important in CSS)
-    if (inlineStyleStr) {
-      const inlineProps = parseInlineStyles(inlineStyleStr);
-      if (Object.keys(inlineProps).length > 0) {
-        // Check if we have a recorded inline style entry from HTML scanning
-        const recorded = this.inlineStyles.find(
-          (is) =>
-            is.tag === element.tag &&
-            is.id === element.id &&
-            is.classes.length === element.classes.length &&
-            is.classes.every((c) => element.classes.includes(c))
-        );
-
-        const inlineIdx = matchedRules.length;
-        const inlineMatch = {
-          selector: '[inline]',
-          file: recorded?.file || 'unknown',
-          line: recorded?.line || 0,
-          specificity: [1, 0, 0, 0],
-          properties: inlineProps,
-          importantProps: {},
-          mediaQuery: null,
-          pseudoClasses: [],
-          fileIndex: Infinity,
-          ruleIndex: 0,
-        };
-        matchedRules.push(inlineMatch);
-
-        // Inline styles win over non-important CSS declarations
-        for (const [prop, val] of Object.entries(inlineProps)) {
-          const currentWinner = propertyWinner[prop];
-          if (currentWinner === undefined) {
-            properties[prop] = val;
-            propertyWinner[prop] = inlineIdx;
-          } else {
-            const currentRule = matchedRules[currentWinner];
-            const currentIsImportant = currentRule.importantProps[prop] || false;
-            if (currentIsImportant) {
-              // CSS !important beats inline styles
-            } else {
-              properties[prop] = val;
-              propertyWinner[prop] = inlineIdx;
-            }
-          }
-        }
-      }
-    }
-
-    // Annotate each property in each matched rule with overridden status and important flag
-    for (let i = 0; i < matchedRules.length; i++) {
-      const rule = matchedRules[i];
-      const annotatedProps = {};
-      for (const [prop, val] of Object.entries(rule.properties)) {
-        annotatedProps[prop] = {
-          value: val,
-          important: rule.importantProps[prop] || false,
-          overridden: propertyWinner[prop] !== i,
-        };
-      }
-      rule.annotatedProperties = annotatedProps;
-
-      // Clean up internal fields not needed in the response
-      delete rule.importantProps;
-      delete rule.fileIndex;
-      delete rule.ruleIndex;
-    }
-
-    // Determine the primary source (highest specificity match)
+    // 6. Shape the response: primary match is the highest-specificity rule
     const primary = matchedRules[matchedRules.length - 1] || null;
 
     return {
@@ -568,40 +513,6 @@ export class Resolver {
       matchedRules,
       cssFiles: this.cssFiles,
     };
-  }
-
-  /**
-   * Recursively collect .css, .html, and .htm files from a directory.
-   * Skips node_modules, .git, and hidden directories.
-   */
-  _collectFiles(dir) {
-    const results = [];
-    const SKIP = new Set(['node_modules', '.git', '.next', 'dist', 'build', '.cache']);
-
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return results;
-    }
-
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.name !== '.') continue;
-      if (SKIP.has(entry.name)) continue;
-
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        results.push(...this._collectFiles(fullPath));
-      } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase();
-        if (ext === '.css' || ext === '.html' || ext === '.htm') {
-          results.push(fullPath);
-        }
-      }
-    }
-
-    return results;
   }
 }
 

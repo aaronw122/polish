@@ -15,6 +15,59 @@ const IGNORED_SEGMENTS = new Set([
   '.next',
 ]);
 
+const WATCHED_EXTENSIONS = new Set(['.css', '.html', '.htm', '.js']);
+
+// ── Path filtering ────────────────────────────────────────────────
+
+function isWatchRoot(filePath, watchDir) {
+  return path.resolve(filePath) === watchDir;
+}
+
+function isPolishInstallPath(filePath, watchDir, polishDir) {
+  const resolved = path.resolve(filePath);
+  return resolved.startsWith(polishDir + path.sep) && polishDir !== watchDir;
+}
+
+function containsIgnoredSegment(filePath, watchDir) {
+  const relative = path.relative(watchDir, path.resolve(filePath));
+  const segments = relative.split(path.sep);
+  return segments.some((seg) => IGNORED_SEGMENTS.has(seg));
+}
+
+function shouldIgnorePath(filePath, watchDir, polishDir) {
+  if (isWatchRoot(filePath, watchDir)) return false;
+  if (isPolishInstallPath(filePath, watchDir, polishDir)) return true;
+  return containsIgnoredSegment(filePath, watchDir);
+}
+
+// ── File event handling ───────────────────────────────────────────
+
+function isRelevantSourceFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return WATCHED_EXTENSIONS.has(ext);
+}
+
+function notifyCallbacks(filePath, callbacks) {
+  for (const cb of callbacks) {
+    try {
+      cb(filePath);
+    } catch (err) {
+      console.error('Polish: file change callback error:', err.message);
+    }
+  }
+}
+
+function queueReload(filePath, pendingState) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.css') {
+    pendingState.cssFiles.add(path.basename(filePath));
+  } else {
+    pendingState.fullReload = true;
+  }
+}
+
+// ── Factory ───────────────────────────────────────────────────────
+
 /**
  * Create a file watcher that monitors a project directory for changes
  * and triggers smart reloads via the WebSocket broadcast function.
@@ -32,22 +85,11 @@ export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS,
   const changeCallbacks = [];
 
   // Pending changes accumulated during the debounce window
-  let pendingCSS = new Set();
-  let pendingFull = false;
+  const pending = { cssFiles: new Set(), fullReload: false };
   let debounceTimer = null;
 
   const watcher = chokidar.watch(resolvedDir, {
-    ignored: (filePath) => {
-      const resolved = path.resolve(filePath);
-      // Never ignore the root watched directory itself
-      if (resolved === resolvedDir) return false;
-      // Ignore Polish's own install directory
-      if (resolved.startsWith(polishDir + path.sep) && polishDir !== resolvedDir) return true;
-      // Ignore common non-source directories by checking path segments
-      const relative = path.relative(resolvedDir, resolved);
-      const segments = relative.split(path.sep);
-      return segments.some((seg) => IGNORED_SEGMENTS.has(seg));
-    },
+    ignored: (filePath) => shouldIgnorePath(filePath, resolvedDir, polishDir),
     persistent: true,
     ignoreInitial: true,
     awaitWriteFinish: false,
@@ -58,27 +100,10 @@ export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS,
   watcher.on('add', (filePath) => onFileEvent(filePath));
 
   function onFileEvent(filePath) {
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext !== '.css' && ext !== '.html' && ext !== '.htm' && ext !== '.js') {
-      return;
-    }
+    if (!isRelevantSourceFile(filePath)) return;
 
-    // Notify registered callbacks
-    for (const cb of changeCallbacks) {
-      try {
-        cb(filePath);
-      } catch (err) {
-        console.error('Polish: file change callback error:', err.message);
-      }
-    }
-
-    // Accumulate changes for debounced reload
-    if (ext === '.css') {
-      pendingCSS.add(path.basename(filePath));
-    } else {
-      pendingFull = true;
-    }
-
+    notifyCallbacks(filePath, changeCallbacks);
+    queueReload(filePath, pending);
     scheduleFlush();
   }
 
@@ -94,20 +119,21 @@ export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS,
 
     if (!broadcast) return;
 
-    if (pendingFull) {
-      // Any HTML or JS change means full reload, even if CSS also changed
+    if (pending.fullReload) {
       broadcast({ type: 'reload', cssOnly: false });
-    } else if (pendingCSS.size > 0) {
+    } else if (pending.cssFiles.size > 0) {
       broadcast({
         type: 'reload',
         cssOnly: true,
-        files: Array.from(pendingCSS),
+        files: Array.from(pending.cssFiles),
       });
     }
 
-    pendingCSS = new Set();
-    pendingFull = false;
+    pending.cssFiles = new Set();
+    pending.fullReload = false;
   }
+
+  // ── Public API ──────────────────────────────────────────────────
 
   /**
    * Register a callback that fires on every watched file change.
