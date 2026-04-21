@@ -1,6 +1,9 @@
 import { WebSocketServer } from 'ws';
+import { createWriter } from './writer.js';
 
 export function createWebSocketServer(httpServer, config) {
+  const writer = createWriter(config.dir);
+
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/__polish__/ws',
@@ -67,6 +70,11 @@ export function createWebSocketServer(httpServer, config) {
         console.log(
           `Polish: change ${message.selector} { ${message.property}: ${message.value} } in ${message.file}`
         );
+        writer.applyChange(message);
+        break;
+
+      case 'flush':
+        writer.flushAll();
         break;
 
       default:
