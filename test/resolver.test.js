@@ -908,6 +908,114 @@ describe('Unlinked CSS file filtering', () => {
   });
 });
 
+// ── Ambiguity detection ──────────────────────────────────────────
+
+describe('Ambiguity detection', () => {
+  it('flags ambiguous when .wrapper .card and .card both declare color', () => {
+    const dir = createTempProject({
+      'styles.css': `.wrapper .card { color: red; }
+.card { color: blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.ambiguous, true);
+    assert.ok(result.ambiguousProperties.includes('color'));
+
+    cleanupDir(dir);
+  });
+
+  it('single rule is not ambiguous', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { color: red; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.ambiguous, false);
+    assert.deepEqual(result.ambiguousProperties, []);
+
+    cleanupDir(dir);
+  });
+
+  it('two rules with SAME full selector are NOT ambiguous', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { color: red; }
+.card { padding: 10px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // Same selector for both rules — different properties, no ambiguity
+    assert.equal(result.ambiguous, false);
+    assert.deepEqual(result.ambiguousProperties, []);
+
+    cleanupDir(dir);
+  });
+
+  it('flags only the properties that are ambiguous, not all', () => {
+    const dir = createTempProject({
+      'styles.css': `.wrapper .card { color: red; padding: 10px; }
+.card { color: blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    assert.equal(result.ambiguous, true);
+    // color is declared in both rules with different full selectors
+    assert.ok(result.ambiguousProperties.includes('color'));
+    // padding is only in .wrapper .card — not ambiguous
+    assert.ok(!result.ambiguousProperties.includes('padding'));
+
+    cleanupDir(dir);
+  });
+
+  it('different key selectors are not ambiguous', () => {
+    const dir = createTempProject({
+      'styles.css': `.card { color: red; }
+div { color: blue; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // Different key selectors (.card vs div), not ambiguous
+    assert.equal(result.ambiguous, false);
+    assert.deepEqual(result.ambiguousProperties, []);
+
+    cleanupDir(dir);
+  });
+});
+
 // ── styleType classification ──────────────────────────────────────
 
 describe('styleType classification', () => {

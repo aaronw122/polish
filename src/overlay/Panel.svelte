@@ -341,6 +341,13 @@
     </div>
   {/if}
 
+  <!-- Ambiguity warning -->
+  {#if $sourceData && $sourceData.ambiguous}
+    <div class="polish-ambiguity-warning">
+      Multiple CSS rules match — edits may target the wrong rule
+    </div>
+  {/if}
+
   <!-- Body -->
   <div class="polish-panel-body">
     {#each sections as sectionDef}
@@ -572,6 +579,16 @@
     background: rgba(168, 85, 247, 0.15);
     color: #c084fc;
     border: 1px solid rgba(168, 85, 247, 0.25);
+  }
+
+  /* Ambiguity warning */
+  .polish-ambiguity-warning {
+    padding: 4px 10px;
+    font-size: 9px;
+    font-weight: 600;
+    color: #F59E0B;
+    background: rgba(245, 158, 11, 0.1);
+    border-bottom: 1px solid rgba(245, 158, 11, 0.2);
   }
 
   /* Shorthand badges */

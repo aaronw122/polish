@@ -29,6 +29,8 @@ function handleSelectMessage(ws, message, resolver) {
       properties: result.properties,
       matchedRules: result.matchedRules,
       cssFiles: result.cssFiles || [],
+      ambiguous: result.ambiguous || false,
+      ambiguousProperties: result.ambiguousProperties || [],
     })
   );
 }

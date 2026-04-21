@@ -414,6 +414,82 @@ function annotateMatchedRules(matchedRules, propertyWinner) {
   }
 }
 
+/**
+ * Extract the key selector (rightmost compound) from a full selector string.
+ * For comma-separated groups, returns the key selector of the first group.
+ */
+function extractKeySelector(selectorStr) {
+  const group = selectorStr.split(',')[0].trim();
+  const parts = group.split(/\s*[>+~ ]\s*/).filter(Boolean);
+  return parts[parts.length - 1] || selectorStr;
+}
+
+/**
+ * Detect ambiguity among matched rules.
+ *
+ * For each CSS property, if two or more matched rules declare it with
+ * different full selectors but the *same* key selector (rightmost compound),
+ * the resolution is ambiguous — the resolver only matched the key selector
+ * and cannot distinguish ancestor context.
+ *
+ * Returns { ambiguous: boolean, ambiguousProperties: string[] }.
+ */
+function detectAmbiguity(matchedRules) {
+  // Build a map: property -> Set of full selector strings that declare it
+  const propToSelectors = {};
+  const propToKeySelectors = {};
+
+  for (const rule of matchedRules) {
+    // Skip inline styles — they are unambiguous
+    if (rule.selector === '[inline]') continue;
+
+    const fullSel = rule.selector;
+    const keySel = extractKeySelector(fullSel);
+
+    for (const prop of Object.keys(rule.properties || rule.annotatedProperties || {})) {
+      if (!propToSelectors[prop]) {
+        propToSelectors[prop] = new Set();
+        propToKeySelectors[prop] = new Set();
+      }
+      propToSelectors[prop].add(fullSel);
+      propToKeySelectors[prop].add(keySel);
+    }
+  }
+
+  const ambiguousProperties = [];
+
+  for (const [prop, fullSelectors] of Object.entries(propToSelectors)) {
+    // Ambiguous when: multiple different full selectors, but they share
+    // at least one key selector (meaning the resolver couldn't distinguish
+    // them by key selector alone).
+    if (fullSelectors.size < 2) continue;
+
+    // Check if any key selector appears in more than one full selector
+    const keyToFulls = {};
+    for (const rule of matchedRules) {
+      if (rule.selector === '[inline]') continue;
+      const props = rule.properties || rule.annotatedProperties || {};
+      if (!(prop in props)) continue;
+
+      const keySel = extractKeySelector(rule.selector);
+      if (!keyToFulls[keySel]) keyToFulls[keySel] = new Set();
+      keyToFulls[keySel].add(rule.selector);
+    }
+
+    for (const fulls of Object.values(keyToFulls)) {
+      if (fulls.size > 1) {
+        ambiguousProperties.push(prop);
+        break;
+      }
+    }
+  }
+
+  return {
+    ambiguous: ambiguousProperties.length > 0,
+    ambiguousProperties,
+  };
+}
+
 // ── Resolver Class ──────────────────────────────────────────────────
 
 export class Resolver {
@@ -567,6 +643,13 @@ export class Resolver {
       }
     }
 
+    // 8. Detect ambiguity: multiple rules with different full selectors
+    //    but the same key selector (rightmost compound) declaring the
+    //    same property.  This means the resolver matched on the key
+    //    selector alone and ancestor context was ignored — write-back
+    //    could target the wrong rule.
+    const { ambiguous, ambiguousProperties } = detectAmbiguity(matchedRules);
+
     return {
       file: primary?.file || null,
       line: primary?.line || 0,
@@ -576,6 +659,8 @@ export class Resolver {
       properties,
       matchedRules,
       cssFiles: this.cssFiles,
+      ambiguous,
+      ambiguousProperties,
     };
   }
 }
