@@ -115,7 +115,7 @@ Live reload → browser reflects the change
 
 - [x] Multiple CSS files — resolve specificity, know which rule wins
 - [x] Cascading rules — show which rule is active vs overridden
-- [x] Media queries — handle responsive rules (show which breakpoint is active)
+- [~] Media queries — rules collected and displayed, but active breakpoint detection not implemented (all breakpoints treated as active)
 - [x] Shorthand properties — UI for showing when a longhand value was expanded from a shorthand (expansion itself handled in M4)
 - [x] `!important` — handle and display
 - [x] Pseudo-classes — indicate hover/focus/active states exist (but don't edit them in v1)

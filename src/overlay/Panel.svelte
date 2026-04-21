@@ -29,6 +29,7 @@
   let spacingValues = {};
   let shorthandProps = new Set();
   let pseudoClasses = new Set();
+  let primaryMediaQuery = null;
 
   // ── Font-family special handling ────────────────────────────────
   // Track extra font options that were added dynamically for fonts
@@ -120,6 +121,10 @@
       }
     }
     pseudoClasses = pc;
+
+    // Media query warning: check if the primary matched rule is inside @media
+    const primary = rules.length > 0 ? rules[rules.length - 1] : null;
+    primaryMediaQuery = (primary && primary.mediaQuery) ? primary.mediaQuery : null;
   }
 
   function findControlDef(property) {
@@ -345,6 +350,13 @@
   {#if $sourceData && $sourceData.ambiguous}
     <div class="polish-ambiguity-warning">
       Multiple CSS rules match — edits may target the wrong rule
+    </div>
+  {/if}
+
+  <!-- Media query warning -->
+  {#if primaryMediaQuery}
+    <div class="polish-media-warning">
+      Editing rule inside <code>@media {primaryMediaQuery}</code>
     </div>
   {/if}
 
@@ -589,6 +601,22 @@
     color: #F59E0B;
     background: rgba(245, 158, 11, 0.1);
     border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  }
+
+  /* Media query warning */
+  .polish-media-warning {
+    padding: 4px 10px;
+    font-size: 9px;
+    font-weight: 600;
+    color: #fb923c;
+    background: rgba(249, 115, 22, 0.1);
+    border-bottom: 1px solid rgba(249, 115, 22, 0.2);
+  }
+  .polish-media-warning code {
+    font-family: inherit;
+    background: rgba(249, 115, 22, 0.15);
+    padding: 0 3px;
+    border-radius: 2px;
   }
 
   /* Shorthand badges */

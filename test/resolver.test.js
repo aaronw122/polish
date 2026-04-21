@@ -539,6 +539,32 @@ describe('Media queries', () => {
     cleanupDir(dir);
   });
 
+  it('primary rule carries mediaQuery when media-conditional rule wins by cascade', () => {
+    const dir = createTempProject({
+      'styles.css': `
+.card { padding: 16px; }
+@media (max-width: 768px) {
+  .card { padding: 8px; }
+}`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'div',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+    });
+
+    // The media query rule appears later in source order with equal specificity,
+    // so it wins and becomes the primary (last) matched rule.
+    const primary = result.matchedRules[result.matchedRules.length - 1];
+    assert.equal(primary.mediaQuery, '(max-width: 768px)');
+    assert.equal(primary.annotatedProperties.padding.value, '8px');
+
+    cleanupDir(dir);
+  });
+
   it('includes all matching rules regardless of media query', () => {
     const dir = createTempProject({
       'styles.css': `
