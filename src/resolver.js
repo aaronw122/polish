@@ -433,29 +433,60 @@ export class Resolver {
     this.cssFiles = [];
 
     const files = collectSourceFiles(this.projectDir);
-    let fileIndex = 0;
 
+    // Partition source files by type
+    const cssFilePaths = [];
+    const htmlFilePaths = [];
     for (const filePath of files) {
       const ext = path.extname(filePath).toLowerCase();
-      const content = fs.readFileSync(filePath, 'utf-8');
-
       if (ext === '.css') {
-        this.cssFiles.push(filePath);
-        this.rules.push(...scanCssFile(filePath, content, fileIndex++));
+        cssFilePaths.push(filePath);
       } else if (ext === '.html' || ext === '.htm') {
-        const result = scanHtmlFile(filePath, content, fileIndex);
-        fileIndex = result.nextFileIndex;
+        htmlFilePaths.push(filePath);
+      }
+    }
 
-        this.rules.push(...result.rules);
-        this.inlineStyles.push(...result.inlineStyles);
+    // Track CSS files that are linked from HTML pages
+    const linkedCssPaths = new Set();
+    let fileIndex = 0;
 
-        for (const cssPath of result.linkedCssFiles) {
-          if (!this.cssFiles.includes(cssPath)) {
-            this.cssFiles.push(cssPath);
-          }
-          const deduped = mergeLinkedStylesheetRules(cssPath, this.rules, fileIndex++);
-          this.rules.push(...deduped);
-        }
+    // Pass 1: Process HTML files — extract <style> rules, inline styles,
+    //         and discover which CSS files are actually linked.
+    for (const filePath of htmlFilePaths) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const result = scanHtmlFile(filePath, content, fileIndex);
+      fileIndex = result.nextFileIndex;
+
+      this.rules.push(...result.rules);
+      this.inlineStyles.push(...result.inlineStyles);
+
+      for (const cssPath of result.linkedCssFiles) {
+        linkedCssPaths.add(cssPath);
+      }
+    }
+
+    // Pass 2: Process CSS files.
+    // If HTML files exist, only include CSS files that are linked via <link> tags.
+    // If no HTML files exist (CSS-only project), include all CSS files as fallback.
+    const hasHtmlFiles = htmlFilePaths.length > 0;
+    const cssToInclude = hasHtmlFiles
+      ? cssFilePaths.filter((fp) => linkedCssPaths.has(fp))
+      : cssFilePaths;
+
+    for (const filePath of cssToInclude) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      this.cssFiles.push(filePath);
+      this.rules.push(...scanCssFile(filePath, content, fileIndex++));
+    }
+
+    // Pass 3: Merge linked stylesheets that were NOT found on disk during
+    //         the directory scan (e.g., referenced via a path outside the
+    //         project tree, or only reachable through the HTML href).
+    for (const cssPath of linkedCssPaths) {
+      if (!this.cssFiles.includes(cssPath)) {
+        this.cssFiles.push(cssPath);
+        const deduped = mergeLinkedStylesheetRules(cssPath, this.rules, fileIndex++);
+        this.rules.push(...deduped);
       }
     }
   }

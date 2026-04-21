@@ -169,7 +169,7 @@ describe('Integration: resolve + write-back pipeline', () => {
   it('resolves element with no explicit CSS rules (empty match)', async () => {
     setup({
       'styles.css': `.card { padding: 16px; }\n`,
-      'index.html': `<html><body><span class="orphan">no styles</span></body></html>`,
+      'index.html': `<html><head><link rel="stylesheet" href="styles.css"></head><body><span class="orphan">no styles</span></body></html>`,
     });
 
     const resolver = createResolver(tmpDir);
