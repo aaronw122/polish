@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { Command } from 'commander';
 import { createProxyServer } from './proxy.js';
 import { createWebSocketServer } from './server.js';
@@ -13,7 +14,7 @@ program
   .action((options) => {
     const targetPort = parseInt(options.port, 10);
     const polishPort = targetPort + 1;
-    const dir = options.dir;
+    const dir = path.resolve(options.dir);
 
     const config = {
       targetPort,
