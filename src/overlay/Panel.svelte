@@ -79,6 +79,15 @@
       if (pseudoState && pseudoState.properties) {
         // Start from normal values, overlay the pseudo-state's properties
         controlValues = { ...normalControlValues, ...pseudoState.properties };
+
+        // Overlay layout props from pseudo-state
+        const pseudoLayout = {};
+        LAYOUT_PROPS.forEach(prop => {
+          if (prop in pseudoState.properties) {
+            pseudoLayout[prop] = pseudoState.properties[prop];
+          }
+        });
+        layoutValues = { ...normalLayoutValues, ...pseudoLayout };
       }
     }
   }
@@ -593,7 +602,6 @@
           {:else if sectionDef.id === 'layout'}
             <LayoutControl
               values={layoutValues}
-              displayValue={layoutDisplayValue}
               on:input={onLayoutInput}
               on:change={onLayoutChange}
             />

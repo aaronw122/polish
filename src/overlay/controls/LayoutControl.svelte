@@ -3,7 +3,6 @@
   import { parseNumericValue, clampValue } from '../lib/utils.js';
 
   export let values = {};
-  export let displayValue = 'block';
 
   const dispatch = createEventDispatcher();
 
@@ -84,10 +83,6 @@
   function onGapSliderChange(e) {
     gapNum = parseFloat(e.target.value);
     dispatch('change', { property: 'gap', value: gapNum + 'rem' });
-  }
-
-  function onGapNumInput(e) {
-    // Only fire change on blur/enter — not continuous input
   }
 
   function onGapNumChange(e) {
@@ -263,7 +258,6 @@
         max="10"
         step="0.125"
         value={gapNum}
-        on:input={onGapNumInput}
         on:change={onGapNumChange}
         on:keydown={onGapKeydown}
       />
