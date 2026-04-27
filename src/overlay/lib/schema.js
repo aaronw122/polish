@@ -58,3 +58,10 @@ export const SPACING_PROPS = [
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
 ];
+
+/**
+ * Layout properties for flexbox controls (not schema-driven).
+ */
+export const LAYOUT_PROPS = [
+  'flex-direction', 'align-items', 'justify-content', 'gap',
+];
