@@ -1,0 +1,10 @@
+/* Second stylesheet — tests multi-file resolution */
+
+.btn:hover {
+  opacity: 0.9;
+  background-color: #b13910;
+}
+
+.nav-link:hover {
+  color: white;
+}

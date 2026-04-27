@@ -21,15 +21,22 @@
   let panelLeft = 0;
   let panelTop = 0;
   let dragState = null;
+  let initializedElement = null;
+  let positionedElement = null;
   let collapsedSections = {};
   let debounceTimers = {};
+  let previewedProperties = new Set();
 
   // ── Control values (keyed by CSS property) ──────────────────────
   let controlValues = {};
   let spacingValues = {};
+  let normalControlValues = {};
+  let normalSpacingValues = {};
   let shorthandProps = new Set();
   let pseudoClasses = new Set();
   let primaryMediaQuery = null;
+  let activeState = 'normal'; // 'normal', 'hover', 'focus', 'active'
+  let availableStates = []; // pseudo states that have CSS rules
 
   // ── Font-family special handling ────────────────────────────────
   // Track extra font options that were added dynamically for fonts
@@ -37,8 +44,18 @@
   let extraFontOptions = {};
 
   // ── Reactivity: init panel when element changes ─────────────────
-  $: if (element) {
+  // Edits to the same selection should not re-anchor the panel.
+  $: if (!element) {
+    initializedElement = null;
+    positionedElement = null;
+  }
+
+  $: if (element && element !== initializedElement) {
+    initializedElement = element;
+    activeState = 'normal';
     initFromElement(element);
+    positionNearElement(element);
+    positionedElement = element;
   }
 
   // ── Reactivity: update from source data ─────────────────────────
@@ -46,8 +63,29 @@
     updateFromSource($sourceData);
   }
 
+  // ── Reactivity: switch control values when activeState changes ──
+  $: {
+    if (activeState === 'normal') {
+      controlValues = { ...normalControlValues };
+      spacingValues = { ...normalSpacingValues };
+    } else {
+      const src = $sourceData;
+      const pseudoState = src && src.pseudoStates && src.pseudoStates[activeState];
+      if (pseudoState && pseudoState.properties) {
+        // Start from normal values, overlay the pseudo-state's properties
+        controlValues = { ...normalControlValues, ...pseudoState.properties };
+      }
+    }
+  }
+
   // ── Initialize control values from computed styles ──────────────
   function initFromElement(el) {
+    // Clear any lingering inline previews from previous element
+    for (const prop of previewedProperties) {
+      if (element) element.style.removeProperty(prop);
+    }
+    previewedProperties.clear();
+
     const computed = window.getComputedStyle(el);
     const vals = {};
 
@@ -72,6 +110,7 @@
       }
     }
     controlValues = vals;
+    normalControlValues = { ...vals };
 
     // Spacing
     const sv = {};
@@ -80,22 +119,24 @@
       sv[prop] = String(Math.round(val.num));
     });
     spacingValues = sv;
+    normalSpacingValues = { ...sv };
 
-    // Position the panel
-    positionNearElement(el);
   }
 
   // ── Update panel from authored source data ──────────────────────
   function updateFromSource(src) {
     if (src.properties) {
       for (const [prop, val] of Object.entries(src.properties)) {
-        // Find the definition in schema
         const def = findControlDef(prop);
-        if (def && def.type === 'slider') {
+        if (!def) continue;
+        if (def.type === 'slider') {
           const parsed = parseNumericValue(val);
           if (parsed.num > 0 || prop !== 'font-size') {
             controlValues[prop] = val;
           }
+        } else {
+          // color, select, text — always sync from source
+          controlValues[prop] = val;
         }
       }
       controlValues = controlValues; // trigger reactivity
@@ -111,16 +152,15 @@
     }
     shorthandProps = sp;
 
-    // Pseudo-class badges
-    const pc = new Set();
-    for (const rule of rules) {
-      if (rule.pseudoClasses && rule.pseudoClasses.length > 0) {
-        for (const p of rule.pseudoClasses) {
-          pc.add(p);
-        }
-      }
+    // Pseudo-class states from resolver
+    const states = src.pseudoStates || {};
+    availableStates = Object.keys(states);
+    pseudoClasses = new Set(availableStates);
+
+    // If we switched to a state that no longer exists, reset to normal
+    if (activeState !== 'normal' && !availableStates.includes(activeState)) {
+      activeState = 'normal';
     }
-    pseudoClasses = pc;
 
     // Media query warning: check if the primary matched rule is inside @media
     const primary = rules.length > 0 ? rules[rules.length - 1] : null;
@@ -146,13 +186,43 @@
   }
 
   export function reposition() {
-    if (element) positionNearElement(element);
+    if (!element || element === positionedElement) return;
+    positionNearElement(element);
+    positionedElement = element;
   }
 
   // ── Live preview + messaging ────────────────────────────────────
   function applyLivePreview(property, value) {
     if (!element) return;
+    // Skip inline preview for pseudo-states — inline styles can't target
+    // :hover/:focus/:active and would override the normal state instead.
+    if (activeState !== 'normal') return;
     element.style[cssToCamel(property)] = value;
+    previewedProperties.add(property);
+  }
+
+  /**
+   * Clear inline previews whose CSS value now matches what we set.
+   * Called by App after a stylesheet reloads. If the CSS write hasn't
+   * landed yet (race with writer/watcher debounce), the inline preview
+   * stays so the element doesn't flash to the old value.
+   */
+  export function clearPreviews() {
+    if (!element) { previewedProperties.clear(); return; }
+    const computed = window.getComputedStyle(element);
+    for (const prop of previewedProperties) {
+      const inlineVal = element.style.getPropertyValue(prop);
+      // Temporarily remove the inline style to read what CSS alone gives us
+      element.style.removeProperty(prop);
+      const cssVal = computed.getPropertyValue(prop);
+      // If CSS now matches what we previewed, leave it cleared (CSS is authoritative)
+      // Otherwise re-apply the inline preview so the element doesn't revert
+      if (cssVal !== inlineVal) {
+        element.style.setProperty(prop, inlineVal);
+      } else {
+        previewedProperties.delete(prop);
+      }
+    }
   }
 
   function debounceSendChange(property, value) {
@@ -176,6 +246,38 @@
   function sendChangeMessage(property, value) {
     const src = $sourceData;
     if (!src || !src.selector) return;
+
+    // Inline preview is kept alive until CSS actually reloads —
+    // App.svelte calls clearPreviews() after the stylesheet swaps.
+
+    // If editing a pseudo state (:hover, :focus, :active), route to that rule
+    if (activeState !== 'normal') {
+      const pseudoState = (src.pseudoStates || {})[activeState];
+      if (pseudoState) {
+        send({
+          type: 'change',
+          file: pseudoState.file,
+          selector: pseudoState.selector,
+          property: property,
+          value: value,
+          line: pseudoState.line || undefined,
+          styleType: 'css',
+        });
+        return;
+      }
+      // No existing rule for this state — create one by appending pseudo-class
+      // to the base selector (e.g., `.btn-primary` → `.btn-primary:hover`)
+      const baseSelector = src.selector.replace(/:[a-z-]+/g, ''); // strip any pseudo
+      send({
+        type: 'change',
+        file: src.file,
+        selector: baseSelector + ':' + activeState,
+        property: property,
+        value: value,
+        styleType: 'css',
+      });
+      return;
+    }
 
     // When the primary match is inline but the property exists in a CSS rule,
     // route the change to the CSS rule instead of the inline style.
@@ -208,26 +310,52 @@
   function onControlInput(e) {
     const { property, value } = e.detail;
     controlValues[property] = value;
+
     applyLivePreview(property, value);
     debounceSendChange(property, value);
+
+    // Preview border visibility when picking border-color
+    if (property === 'border-color' && value !== 'transparent' && element) {
+      const computed = window.getComputedStyle(element);
+      if (computed.borderTopStyle === 'none') applyLivePreview('border-style', 'solid');
+      if (parseFloat(computed.borderTopWidth) === 0) applyLivePreview('border-width', '1px');
+    }
   }
 
   function onControlChange(e) {
     const { property, value } = e.detail;
     controlValues[property] = value;
+
     applyLivePreview(property, value);
     sendChangeImmediate(property, value);
+
+    // Auto-set border-style/width when adding a border color to an element with no border
+    if (property === 'border-color' && value !== 'transparent' && element) {
+      const computed = window.getComputedStyle(element);
+      const needsStyle = computed.borderTopStyle === 'none';
+      const needsWidth = parseFloat(computed.borderTopWidth) === 0;
+      if (needsStyle) {
+        applyLivePreview('border-style', 'solid');
+        sendChangeImmediate('border-style', 'solid');
+      }
+      if (needsWidth) {
+        applyLivePreview('border-width', '1px');
+        sendChangeImmediate('border-width', '1px');
+      }
+    }
   }
 
   function onSpacingInput(e) {
     const { property, value } = e.detail;
     spacingValues[property] = e.detail.raw || value.replace(/px$/, '');
+
     applyLivePreview(property, value);
     debounceSendChange(property, value);
   }
 
   function onSpacingChange(e) {
     const { property, value } = e.detail;
+
     applyLivePreview(property, value);
     sendChangeImmediate(property, value);
   }
@@ -287,6 +415,11 @@
       clearTimeout(debounceTimers[key]);
     });
     debounceTimers = {};
+    // Clear inline previews on close
+    for (const prop of previewedProperties) {
+      if (element) element.style.removeProperty(prop);
+    }
+    previewedProperties.clear();
     dispatch('close');
   }
 
@@ -337,11 +470,20 @@
     <span class="polish-panel-close" on:click={onClose}>&times;</span>
   </div>
 
-  <!-- Pseudo-class badges -->
+  <!-- State toggle: Normal / :hover / :focus / :active -->
   {#if pseudoClasses.size > 0}
-    <div class="polish-pseudo-badges">
+    <div class="polish-state-toggle">
+      <button
+        class="polish-state-btn"
+        class:active={activeState === 'normal'}
+        on:click={() => activeState = 'normal'}
+      >Normal</button>
       {#each [...pseudoClasses] as pc}
-        <span class="polish-pseudo-badge">Has {pc} styles</span>
+        <button
+          class="polish-state-btn"
+          class:active={activeState === pc}
+          on:click={() => activeState = pc}
+        >:{pc}</button>
       {/each}
     </div>
   {/if}
@@ -574,17 +716,33 @@
     color: #777;
   }
 
-  /* Pseudo badges */
-  .polish-pseudo-badges {
+  /* State toggle */
+  .polish-state-toggle {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+    gap: 2px;
     padding: 4px 10px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
-  .polish-pseudo-badge {
-    display: inline-block;
-    font-size: 9px;
+  .polish-state-btn {
+    font-size: 10px;
+    font-weight: 500;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    color: #999;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .polish-state-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #ccc;
+  }
+  .polish-state-btn.active {
+    background: rgba(74, 158, 255, 0.15);
+    border-color: rgba(74, 158, 255, 0.3);
+    color: #4A9EFF;
     font-weight: 600;
     padding: 2px 6px;
     border-radius: 3px;

@@ -10,10 +10,11 @@ export function clampValue(val, min, max) {
 }
 
 export function rgbToHex(rgb) {
-  if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return '#000000';
+  if (!rgb || rgb === 'transparent') return 'transparent';
   if (rgb.startsWith('#')) return rgb.length === 7 ? rgb : rgb;
-  const match = rgb.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  const match = rgb.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
   if (!match) return '#000000';
+  if (match[4] !== undefined && parseFloat(match[4]) === 0) return 'transparent';
   const r = parseInt(match[1], 10);
   const g = parseInt(match[2], 10);
   const b = parseInt(match[3], 10);
@@ -29,6 +30,20 @@ export function parseNumericValue(val) {
 
 export function cssToCamel(property) {
   return property.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+export function getPlatformModifier(platform = '') {
+  return String(platform).toUpperCase().includes('MAC') ? 'metaKey' : 'ctrlKey';
+}
+
+export function isOverlayToggleShortcut(event, platform = '') {
+  if (!event || !event.shiftKey) return false;
+
+  const modifier = getPlatformModifier(platform);
+  if (!event[modifier]) return false;
+
+  const key = String(event.key || '').toLowerCase();
+  return event.code === 'KeyP' || key === 'p';
 }
 
 export function describeElement(el) {
@@ -54,14 +69,18 @@ export function isPolishElement(el) {
   return false;
 }
 
+function escapeHTML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export function buildBreadcrumbs(el) {
   const parts = [];
   let node = el;
   while (node && node !== document.body && node !== document.documentElement) {
     const { tag, id, classes } = describeElement(node);
-    let label = tag;
-    if (id) label += '#' + id;
-    if (classes.length) label += '.' + classes.slice(0, 2).join('.');
+    let label = escapeHTML(tag);
+    if (id) label += '#' + escapeHTML(id);
+    if (classes.length) label += '.' + classes.slice(0, 2).map(escapeHTML).join('.');
     if (classes.length > 2) label += '...';
     parts.unshift(label);
     if (parts.length >= 4) {
@@ -70,7 +89,7 @@ export function buildBreadcrumbs(el) {
     }
     node = node.parentElement;
   }
-  return parts.join(' > ');
+  return parts.join(' &gt; ');
 }
 
 export function buildInfoHTML(el) {
@@ -81,12 +100,12 @@ export function buildInfoHTML(el) {
   const breadcrumb = buildBreadcrumbs(el);
   let html = `<span class="polish-breadcrumb">${breadcrumb}</span><br>`;
 
-  html += `<span class="tag">&lt;${tag}&gt;</span>`;
-  if (id) html += `<span class="sep">|</span><span class="id">#${id}</span>`;
-  if (classes.length) html += `<span class="sep">|</span><span class="cls">.${classes.join('.')}</span>`;
+  html += `<span class="tag">&lt;${escapeHTML(tag)}&gt;</span>`;
+  if (id) html += `<span class="sep">|</span><span class="id">#${escapeHTML(id)}</span>`;
+  if (classes.length) html += `<span class="sep">|</span><span class="cls">.${classes.map(escapeHTML).join('.')}</span>`;
   html += `<br><span class="dim">${Math.round(rect.width)} \u00D7 ${Math.round(rect.height)}px</span>`;
-  html += `<span class="sep">|</span><span class="dim">padding: ${computed.padding}</span>`;
-  html += `<span class="sep">|</span><span class="dim">margin: ${computed.margin}</span>`;
+  html += `<span class="sep">|</span><span class="dim">padding: ${escapeHTML(computed.padding)}</span>`;
+  html += `<span class="sep">|</span><span class="dim">margin: ${escapeHTML(computed.margin)}</span>`;
 
   return html;
 }
@@ -123,7 +142,8 @@ export function computePanelPosition(elRect, viewportWidth, viewportHeight, pane
       left = viewportWidth - panelWidth - 8;
     }
 
-    top = elRect.top;
+    // Center panel vertically in viewport
+    top = (viewportHeight - effectivePanelHeight) / 2;
   }
 
   // Keep panel fully on screen

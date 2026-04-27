@@ -14,8 +14,14 @@ export function calculateSpecificity(selector) {
   // Remove :not() wrapper but keep its contents for specificity
   const withoutNot = selector.replace(/:not\(([^)]*)\)/g, ' $1 ');
 
+  // Remove :where() and its contents entirely (zero specificity)
+  const withoutWhere = withoutNot.replace(/:where\(([^)]*)\)/g, '');
+
+  // Remove :is() wrapper but keep its contents (specificity of most specific argument)
+  const withoutIs = withoutWhere.replace(/:is\(([^)]*)\)/g, ' $1 ');
+
   // Remove attribute selectors content, count them as classes
-  const withoutAttrs = withoutNot.replace(/\[[^\]]*\]/g, () => {
+  const withoutAttrs = withoutIs.replace(/\[[^\]]*\]/g, () => {
     classes++;
     return '';
   });
@@ -135,17 +141,76 @@ export function matchesCompound(element, compound) {
  * Test if an element matches a full selector string.
  *
  * Handles comma-separated selector groups by testing each independently.
- * For descendant/child/sibling combinators, only the rightmost compound
- * (the key selector) is matched, since we lack full DOM context.
+ * When ancestors are provided, verifies ancestor compounds in descendant
+ * selectors (e.g., `.card h3`) match actual DOM ancestors.
  */
-export function matchesSelector(element, selectorStr) {
+export function matchesSelector(element, selectorStr, ancestors) {
   const groups = selectorStr.split(',').map((s) => s.trim());
 
   for (const group of groups) {
-    const parts = group.split(/\s*[>+~ ]\s*/).filter(Boolean);
-    const keySelector = parts[parts.length - 1];
+    // Parse selector into parts with their preceding combinators
+    // e.g. ".parent > .child .item" => [{sel:".parent",comb:null},{sel:".child",comb:">"},{sel:".item",comb:" "}]
+    const tokens = [];
+    const re = /([>+~])\s*|(\s+)/g;
+    const selectorParts = group.trim().split(re).filter((t) => t != null && t.trim() !== '');
+    let currentCombinator = null;
+    for (const token of selectorParts) {
+      if (/^[>+~]$/.test(token)) {
+        currentCombinator = token;
+      } else {
+        tokens.push({ sel: token.trim(), comb: currentCombinator });
+        currentCombinator = ' '; // default to descendant
+      }
+    }
+    if (tokens.length === 0) continue;
 
-    if (matchesCompound(element, keySelector)) return true;
+    const keySelector = tokens[tokens.length - 1].sel;
+
+    if (!matchesCompound(element, keySelector)) continue;
+
+    // Simple selector (no ancestors needed)
+    if (tokens.length === 1) return true;
+
+    // No ancestor info — fall back to key-selector-only match
+    if (!ancestors || ancestors.length === 0) return true;
+
+    // Verify ancestor parts match actual ancestors respecting combinators
+    let ancestorIdx = 0;
+    let allFound = true;
+    for (let i = tokens.length - 2; i >= 0; i--) {
+      const combinator = tokens[i + 1].comb;
+
+      if (combinator === '+' || combinator === '~') {
+        // Sibling combinators: cannot verify via ancestor chain alone.
+        // Treat as satisfied — the key selector already matched.
+        continue;
+      }
+
+      if (combinator === '>') {
+        // Child combinator: must be the immediate next ancestor
+        if (ancestorIdx >= ancestors.length) { allFound = false; break; }
+        if (matchesCompound(ancestors[ancestorIdx], tokens[i].sel)) {
+          ancestorIdx++;
+        } else {
+          allFound = false;
+          break;
+        }
+      } else {
+        // Descendant combinator (space): ancestor can be anywhere up the chain
+        let found = false;
+        while (ancestorIdx < ancestors.length) {
+          if (matchesCompound(ancestors[ancestorIdx], tokens[i].sel)) {
+            ancestorIdx++;
+            found = true;
+            break;
+          }
+          ancestorIdx++;
+        }
+        if (!found) { allFound = false; break; }
+      }
+    }
+
+    if (allFound) return true;
   }
 
   return false;

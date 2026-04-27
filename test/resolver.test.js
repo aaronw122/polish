@@ -348,7 +348,7 @@ div {
     cleanupDir(dir);
   });
 
-  it('matches descendant selectors by key selector', () => {
+  it('matches descendant selectors with ancestors provided', () => {
     const dir = createTempProject({
       'styles.css': `div .card { padding: 20px; }`,
     });
@@ -359,11 +359,37 @@ div {
       id: '',
       classes: ['card'],
       inlineStyles: '',
+      ancestors: [
+        { tag: 'div', id: '', classes: [] },
+      ],
     });
 
-    // Should match via the key selector .card
+    // Should match because a div ancestor is present
     assert.ok(result.matchedRules.length >= 1);
     assert.equal(result.properties.padding, '20px');
+
+    cleanupDir(dir);
+  });
+
+  it('does NOT match descendant selector when ancestor is missing', () => {
+    const dir = createTempProject({
+      'styles.css': `div .card { padding: 20px; }`,
+    });
+
+    const resolver = createResolver(dir);
+    const result = resolver.resolve({
+      tag: 'section',
+      id: '',
+      classes: ['card'],
+      inlineStyles: '',
+      ancestors: [
+        { tag: 'span', id: '', classes: [] },
+      ],
+    });
+
+    // Should NOT match — no div ancestor in chain
+    assert.equal(result.matchedRules.length, 0);
+    assert.equal(result.properties.padding, undefined);
 
     cleanupDir(dir);
   });

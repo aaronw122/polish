@@ -258,11 +258,11 @@ function collectSourceFiles(dir) {
 /**
  * Collect all rules that match the given element description.
  */
-function collectMatchingRules(element, allRules) {
+function collectMatchingRules(element, allRules, ancestors) {
   const matched = [];
 
   for (const rule of allRules) {
-    if (matchesSelector(element, rule.selector)) {
+    if (matchesSelector(element, rule.selector, ancestors)) {
       matched.push({
         selector: rule.selector,
         file: rule.file,
@@ -584,20 +584,29 @@ export class Resolver {
    * @returns {{ file, line, selector, properties, matchedRules, cssFiles }}
    */
   resolve(elementInfo) {
-    const { tag, id, classes, inlineStyles: inlineStyleStr } = elementInfo;
+    const { tag, id, classes, inlineStyles: inlineStyleStr, ancestors } = elementInfo;
     const element = {
       tag: tag?.toLowerCase(),
       id: id || '',
       classes: classes || [],
     };
 
-    // 1. Collect all rules whose selector matches this element
-    const matchedRules = collectMatchingRules(element, this.rules);
+    // 1. Collect all rules whose selector matches this element (with ancestor context)
+    const allMatched = collectMatchingRules(element, this.rules, ancestors);
 
-    // 2. Sort by specificity, then source order
+    // 2. Split into base rules (no pseudo-classes) and pseudo-class rules
+    const baseRules = allMatched.filter(r => r.pseudoClasses.length === 0);
+    const pseudoRulesByState = {};
+    for (const rule of allMatched) {
+      for (const pseudo of rule.pseudoClasses) {
+        if (!pseudoRulesByState[pseudo]) pseudoRulesByState[pseudo] = [];
+        pseudoRulesByState[pseudo].push(rule);
+      }
+    }
+
+    // 3. Resolve base (normal) state
+    const matchedRules = baseRules;
     sortByCascade(matchedRules);
-
-    // 3. Walk the cascade to determine the winning value for each property
     const { properties, propertyWinner } = computeWinningProperties(matchedRules);
 
     // 4. Overlay inline styles (highest specificity except !important CSS)
@@ -609,7 +618,7 @@ export class Resolver {
     // 5. Annotate each rule's properties with override/important status
     annotateMatchedRules(matchedRules, propertyWinner);
 
-    // 6. Shape the response: primary match is the highest-specificity rule
+    // 6. Shape the response: primary match is the highest-specificity base rule
     const primary = matchedRules[matchedRules.length - 1] || null;
 
     // 7. Determine styleType based on the primary match
@@ -619,9 +628,6 @@ export class Resolver {
     if (primary) {
       if (primary.selector === '[inline]') {
         styleType = 'inline';
-        // Find the next most specific non-inline rule as a CSS fallback target.
-        // When the user edits a property that exists in a CSS rule (not inline),
-        // the panel can route the change to the CSS file instead of the inline style.
         for (let i = matchedRules.length - 2; i >= 0; i--) {
           if (matchedRules[i].selector !== '[inline]') {
             cssRule = {
@@ -643,11 +649,20 @@ export class Resolver {
       }
     }
 
-    // 8. Detect ambiguity: multiple rules with different full selectors
-    //    but the same key selector (rightmost compound) declaring the
-    //    same property.  This means the resolver matched on the key
-    //    selector alone and ancestor context was ignored — write-back
-    //    could target the wrong rule.
+    // 8. Build pseudo-state info for each detected state (:hover, :focus, :active)
+    const pseudoStates = {};
+    for (const [state, rules] of Object.entries(pseudoRulesByState)) {
+      sortByCascade(rules);
+      const winning = rules[rules.length - 1];
+      pseudoStates[state] = {
+        file: winning.file,
+        line: winning.line,
+        selector: winning.selector,
+        properties: winning.properties,
+      };
+    }
+
+    // 9. Detect ambiguity
     const { ambiguous, ambiguousProperties } = detectAmbiguity(matchedRules);
 
     return {
@@ -658,6 +673,7 @@ export class Resolver {
       cssRule,
       properties,
       matchedRules,
+      pseudoStates,
       cssFiles: this.cssFiles,
       ambiguous,
       ambiguousProperties,

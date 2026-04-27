@@ -334,10 +334,17 @@ describe('server change message validation', () => {
     assert.ok(error.includes('file'));
   });
 
-  it('rejects messages with absolute path in file field', () => {
-    const error = _validateChangeMessage({ file: '/etc/passwd', property: 'color', value: 'red' });
+  it('rejects absolute paths outside project directory', () => {
+    const error = _validateChangeMessage({ file: '/etc/passwd', property: 'color', value: 'red' }, '/Users/test/project');
     assert.ok(error);
-    assert.ok(error.includes('absolute'));
+    assert.ok(error.includes('outside'));
+  });
+
+  it('normalizes absolute paths within project directory', () => {
+    const msg = { file: '/Users/test/project/styles.css', property: 'color', value: 'red' };
+    const error = _validateChangeMessage(msg, '/Users/test/project');
+    assert.equal(error, null);
+    assert.equal(msg.file, 'styles.css');
   });
 
   it('rejects messages with .. in file field', () => {

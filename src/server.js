@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { createWriter } from './writer.js';
 
@@ -8,6 +9,7 @@ function handleSelectMessage(ws, message, resolver) {
     message.classes?.length ? '.' + message.classes.join('.') : ''
   }>`;
   console.log(`Polish: selected ${desc}`);
+  console.log(`Polish: ancestors = ${JSON.stringify((message.ancestors || []).map(a => a.classes?.length ? '.' + a.classes.join('.') : a.tag))}`);
 
   if (!resolver) return;
 
@@ -16,6 +18,7 @@ function handleSelectMessage(ws, message, resolver) {
     id: message.id,
     classes: message.classes,
     inlineStyles: message.inlineStyles || '',
+    ancestors: message.ancestors || [],
   });
 
   ws.send(
@@ -31,16 +34,23 @@ function handleSelectMessage(ws, message, resolver) {
       cssFiles: result.cssFiles || [],
       ambiguous: result.ambiguous || false,
       ambiguousProperties: result.ambiguousProperties || [],
+      pseudoStates: result.pseudoStates || {},
     })
   );
 }
 
-function validateChangeMessage(message) {
+function validateAndNormalizeChangeMessage(message, projectDir) {
   if (!message.file || typeof message.file !== 'string') {
     return 'missing or invalid "file" field';
   }
-  if (message.file.startsWith('/')) {
-    return 'absolute paths are not allowed in "file" field';
+  // Normalize absolute paths to relative (resolver sends absolute paths)
+  if (path.isAbsolute(message.file) && projectDir) {
+    const resolved = path.resolve(message.file);
+    if (resolved.startsWith(projectDir + path.sep) || resolved === projectDir) {
+      message.file = path.relative(projectDir, resolved);
+    } else {
+      return 'file path is outside the project directory';
+    }
   }
   if (message.file.includes('..')) {
     return '"file" field must not contain ".."';
@@ -54,8 +64,8 @@ function validateChangeMessage(message) {
   return null;
 }
 
-function handleChangeMessage(message, writer) {
-  const error = validateChangeMessage(message);
+function handleChangeMessage(message, writer, projectDir) {
+  const error = validateAndNormalizeChangeMessage(message, projectDir);
   if (error) {
     console.error(`Polish: rejected change message — ${error}`);
     return;
@@ -73,7 +83,7 @@ function handleFlushMessage(writer) {
 
 // ── WebSocket server factory ──────────────────────────────────────
 
-export { validateChangeMessage as _validateChangeMessage };
+export { validateAndNormalizeChangeMessage as _validateChangeMessage };
 
 export function createWebSocketServer(httpServer, config) {
   const writer = createWriter(config.dir);
@@ -83,6 +93,13 @@ export function createWebSocketServer(httpServer, config) {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/__polish__/ws',
+    verifyClient: ({ origin }) => {
+      if (!origin) return true; // non-browser clients (CLI tools)
+      try {
+        const url = new URL(origin);
+        return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+      } catch { return false; }
+    },
   });
 
   wss.on('connection', (ws) => {
@@ -115,7 +132,7 @@ export function createWebSocketServer(httpServer, config) {
         console.log('Polish: deselected');
         break;
       case 'change':
-        handleChangeMessage(message, writer);
+        handleChangeMessage(message, writer, config.dir);
         break;
       case 'flush':
         handleFlushMessage(writer);
@@ -144,9 +161,14 @@ export function createWebSocketServer(httpServer, config) {
     resolver = resolverInstance;
   }
 
+  function flushAll() {
+    writer.flushAll();
+  }
+
   // Attach to wss for backward-compatible access via cli.js
   wss.broadcast = broadcast;
   wss.setResolver = setResolver;
+  wss.flushAll = flushAll;
 
   return wss;
 }

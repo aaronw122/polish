@@ -25,7 +25,10 @@ function isWatchRoot(filePath, watchDir) {
 
 function isPolishInstallPath(filePath, watchDir, polishDir) {
   const resolved = path.resolve(filePath);
-  return resolved.startsWith(polishDir + path.sep) && polishDir !== watchDir;
+  if (polishDir === watchDir) return false;
+  // File is under the watched directory — it's a project file, not Polish source
+  if (resolved.startsWith(watchDir + path.sep)) return false;
+  return resolved.startsWith(polishDir + path.sep);
 }
 
 function containsIgnoredSegment(filePath, watchDir) {
@@ -102,6 +105,7 @@ export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS,
   function onFileEvent(filePath) {
     if (!isRelevantSourceFile(filePath)) return;
 
+    console.log(`Polish: file changed → ${path.relative(resolvedDir, filePath)}`);
     notifyCallbacks(filePath, changeCallbacks);
     queueReload(filePath, pending);
     scheduleFlush();
@@ -120,8 +124,10 @@ export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS,
     if (!broadcast) return;
 
     if (pending.fullReload) {
+      console.log('Polish: broadcasting full reload');
       broadcast({ type: 'reload', cssOnly: false });
     } else if (pending.cssFiles.size > 0) {
+      console.log(`Polish: broadcasting CSS reload → ${Array.from(pending.cssFiles).join(', ')}`);
       broadcast({
         type: 'reload',
         cssOnly: true,

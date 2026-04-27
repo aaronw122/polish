@@ -10,6 +10,9 @@ import {
   _expandBorderRadiusValue,
   _expandBorderValue,
   _shorthandFor,
+  _declAffectsProperty,
+  _findGoverningDeclaration,
+  _upsertLonghandAfterShorthand,
   _writeCssFile,
   _writeStyleBlock,
   _writeInlineStyle,
@@ -452,5 +455,295 @@ describe('debounce', () => {
     const content = readFixture(filePath);
     assert.ok(content.includes('color: blue'));
     assert.ok(content.includes('padding: 20px'));
+  });
+});
+
+// ── Unit Tests: declAffectsProperty ────────────────────────────────
+
+describe('declAffectsProperty', () => {
+  it('returns true for exact property match', () => {
+    assert.equal(_declAffectsProperty('color', 'color'), true);
+  });
+
+  it('returns true when shorthand governs the longhand', () => {
+    assert.equal(_declAffectsProperty('background', 'background-color'), true);
+    assert.equal(_declAffectsProperty('padding', 'padding-left'), true);
+    assert.equal(_declAffectsProperty('margin', 'margin-top'), true);
+    assert.equal(_declAffectsProperty('font', 'font-size'), true);
+    assert.equal(_declAffectsProperty('flex', 'flex-grow'), true);
+    assert.equal(_declAffectsProperty('border', 'border-top-width'), true);
+  });
+
+  it('returns false when property is unrelated', () => {
+    assert.equal(_declAffectsProperty('color', 'font-size'), false);
+    assert.equal(_declAffectsProperty('padding', 'margin-top'), false);
+    assert.equal(_declAffectsProperty('background', 'font-size'), false);
+  });
+
+  it('returns false for longhand checking against another longhand', () => {
+    assert.equal(_declAffectsProperty('padding-left', 'padding-right'), false);
+    assert.equal(_declAffectsProperty('background-color', 'background-image'), false);
+  });
+});
+
+// ── Unit Tests: findGoverningDeclaration ───────────────────────────
+
+describe('findGoverningDeclaration', () => {
+  it('finds an exact longhand declaration', () => {
+    const root = postcss.parse('.a { color: red; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'color');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'longhand');
+    assert.equal(gov.decl.prop, 'color');
+    assert.equal(gov.decl.value, 'red');
+  });
+
+  it('finds a shorthand governing a longhand (background)', () => {
+    const root = postcss.parse('.a { background: url(bg.png) no-repeat center; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'background-color');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.prop, 'background');
+  });
+
+  it('finds a shorthand governing a longhand (font)', () => {
+    const root = postcss.parse('.a { font: bold 16px/1.5 Arial; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'font-weight');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.prop, 'font');
+  });
+
+  it('finds a shorthand governing a longhand (flex)', () => {
+    const root = postcss.parse('.a { flex: 1 0 auto; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'flex-basis');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.prop, 'flex');
+  });
+
+  it('finds a shorthand governing a longhand (border)', () => {
+    const root = postcss.parse('.a { border: 1px solid black; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'border-top-color');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.prop, 'border');
+  });
+
+  it('finds a shorthand governing a longhand (padding)', () => {
+    const root = postcss.parse('.a { padding: 10px 20px; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'padding-left');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.prop, 'padding');
+  });
+
+  it('finds a shorthand governing a longhand (margin)', () => {
+    const root = postcss.parse('.a { margin: 5px; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'margin-bottom');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.prop, 'margin');
+  });
+
+  it('returns null when no declaration affects the property', () => {
+    const root = postcss.parse('.a { color: red; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'font-size');
+    assert.equal(gov, null);
+  });
+
+  it('later longhand overrides shorthand in source order', () => {
+    const root = postcss.parse('.a { background: red; background-color: blue; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'background-color');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'longhand');
+    assert.equal(gov.decl.value, 'blue');
+  });
+
+  it('later shorthand overrides earlier longhand in source order', () => {
+    const root = postcss.parse('.a { background-color: blue; background: red; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'background-color');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.prop, 'background');
+  });
+
+  it('!important longhand beats later non-important shorthand', () => {
+    const root = postcss.parse('.a { background-color: blue !important; background: red; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'background-color');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'longhand');
+    assert.equal(gov.important, true);
+    assert.equal(gov.decl.value, 'blue');
+  });
+
+  it('!important shorthand beats earlier non-important longhand', () => {
+    const root = postcss.parse('.a { background-color: blue; background: red !important; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'background-color');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.important, true);
+  });
+
+  it('handles multiple shorthands — last one wins at same importance', () => {
+    const root = postcss.parse('.a { border: 1px solid red; border: 2px dashed blue; }');
+    const rule = root.first;
+    const gov = _findGoverningDeclaration(rule, 'border-style');
+    assert.ok(gov);
+    assert.equal(gov.kind, 'shorthand');
+    assert.equal(gov.decl.value, '2px dashed blue');
+  });
+});
+
+// ── Unit Tests: upsertLonghandAfterShorthand ───────────────────────
+
+describe('upsertLonghandAfterShorthand', () => {
+  it('inserts a new longhand after the shorthand', () => {
+    const root = postcss.parse('.a { background: red; color: blue; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first; // background: red
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'background-color', 'green');
+    const output = root.toString();
+    // background-color should appear after background and before color
+    const bgIdx = output.indexOf('background: red');
+    const bgcIdx = output.indexOf('background-color: green');
+    const colorIdx = output.indexOf('color: blue');
+    assert.ok(bgcIdx > bgIdx, 'longhand should appear after shorthand');
+    assert.ok(bgcIdx < colorIdx, 'longhand should appear before subsequent declarations');
+  });
+
+  it('updates an existing longhand after the shorthand instead of duplicating', () => {
+    const root = postcss.parse('.a { background: red; background-color: yellow; color: blue; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first; // background: red
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'background-color', 'green');
+    const output = root.toString();
+    assert.ok(output.includes('background-color: green'));
+    assert.ok(!output.includes('background-color: yellow'));
+    // Should not have duplicate background-color declarations
+    const count = (output.match(/background-color/g) || []).length;
+    assert.equal(count, 1, 'should have exactly one background-color declaration');
+  });
+
+  it('copies !important from shorthand to new longhand', () => {
+    const root = postcss.parse('.a { background: red !important; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first;
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'background-color', 'green');
+    const output = root.toString();
+    assert.ok(output.includes('background-color: green !important'));
+  });
+
+  it('copies !important from shorthand when updating existing longhand', () => {
+    const root = postcss.parse('.a { background: red !important; background-color: yellow; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first;
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'background-color', 'green');
+    const output = root.toString();
+    assert.ok(output.includes('background-color: green !important'));
+  });
+
+  it('works with font shorthand', () => {
+    const root = postcss.parse('.a { font: bold 16px Arial; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first;
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'font-size', '20px');
+    const output = root.toString();
+    assert.ok(output.includes('font: bold 16px Arial'));
+    assert.ok(output.includes('font-size: 20px'));
+  });
+
+  it('works with flex shorthand', () => {
+    const root = postcss.parse('.a { flex: 1 0 auto; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first;
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'flex-basis', '50%');
+    const output = root.toString();
+    assert.ok(output.includes('flex: 1 0 auto'));
+    assert.ok(output.includes('flex-basis: 50%'));
+  });
+
+  it('works with border shorthand', () => {
+    const root = postcss.parse('.a { border: 1px solid black; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first;
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'border-color', 'red');
+    const output = root.toString();
+    assert.ok(output.includes('border: 1px solid black'));
+    assert.ok(output.includes('border-color: red'));
+  });
+
+  it('works with padding shorthand', () => {
+    const root = postcss.parse('.a { padding: 10px 20px; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first;
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'padding-top', '5px');
+    const output = root.toString();
+    assert.ok(output.includes('padding: 10px 20px'));
+    assert.ok(output.includes('padding-top: 5px'));
+  });
+
+  it('works with margin shorthand', () => {
+    const root = postcss.parse('.a { margin: 8px; }');
+    const rule = root.first;
+    const shorthandDecl = rule.first;
+    _upsertLonghandAfterShorthand(rule, shorthandDecl, 'margin-left', '16px');
+    const output = root.toString();
+    assert.ok(output.includes('margin: 8px'));
+    assert.ok(output.includes('margin-left: 16px'));
+  });
+});
+
+// ── Integration Test: Concurrent Writes (Issue #30) ────────────────
+
+describe('concurrent writes — per-file serialization', () => {
+  it('both changes survive when two applyChange calls flush concurrently on the same file', async () => {
+    const filePath = writeFixture('styles.css', `.card {\n  display: block;\n}\n`);
+    const writer = createWriter(tmpDir);
+
+    // Schedule two changes to different properties on the same selector/file
+    writer.applyChange({ file: 'styles.css', selector: '.card', property: 'color', value: 'red' });
+    writer.applyChange({ file: 'styles.css', selector: '.card', property: 'font-size', value: '18px' });
+
+    // Both are pending (different keys because different properties)
+    assert.equal(writer._pending.size, 2);
+
+    // flushAll triggers both flushes — the per-file chain serializes them
+    await writer.flushAll();
+
+    const content = readFixture(filePath);
+    assert.ok(content.includes('color: red'), 'first change (color) must be present');
+    assert.ok(content.includes('font-size: 18px'), 'second change (font-size) must be present');
+    assert.ok(content.includes('display: block'), 'original declaration must be preserved');
+  });
+
+  it('rapid sequential applyChange calls on the same file do not lose writes', async () => {
+    const filePath = writeFixture('app.css', `.btn {\n  cursor: pointer;\n}\n`);
+    const writer = createWriter(tmpDir);
+
+    // Simulate rapid-fire changes to different properties
+    writer.applyChange({ file: 'app.css', selector: '.btn', property: 'background', value: 'blue' });
+    writer.applyChange({ file: 'app.css', selector: '.btn', property: 'color', value: 'white' });
+    writer.applyChange({ file: 'app.css', selector: '.btn', property: 'border-radius', value: '4px' });
+
+    await writer.flushAll();
+
+    const content = readFixture(filePath);
+    assert.ok(content.includes('cursor: pointer'), 'original declaration preserved');
+    assert.ok(content.includes('background: blue'), 'background change present');
+    assert.ok(content.includes('color: white'), 'color change present');
+    assert.ok(content.includes('border-radius: 4px'), 'border-radius change present');
   });
 });

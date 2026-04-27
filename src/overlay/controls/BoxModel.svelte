@@ -7,8 +7,6 @@
 
   const dispatch = createEventDispatcher();
 
-  const SIDES = ['top', 'right', 'bottom', 'left'];
-
   function getVal(prefix, side) {
     return values[`${prefix}-${side}`] || '0';
   }
@@ -19,7 +17,7 @@
 
     if (uniformMode) {
       const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
-      SIDES.forEach(side => {
+      ['top', 'right', 'bottom', 'left'].forEach(side => {
         const sibProp = `${prefix}-${side}`;
         if (sibProp !== prop) {
           dispatch('input', { property: sibProp, value: fullVal, raw: e.target.value });
@@ -34,7 +32,7 @@
 
     if (uniformMode) {
       const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
-      SIDES.forEach(side => {
+      ['top', 'right', 'bottom', 'left'].forEach(side => {
         const sibProp = `${prefix}-${side}`;
         if (sibProp !== prop) {
           dispatch('change', { property: sibProp, value: fullVal });
@@ -44,109 +42,146 @@
   }
 </script>
 
-<div class="polish-box-model">
-  <div class="polish-box-margin">
-    <span class="polish-box-label">margin</span>
-    {#each SIDES as side}
-      <input
-        class="polish-box-value {side}"
-        data-property="margin-{side}"
-        value={getVal('margin', side)}
-        on:input={(e) => onInput(e, `margin-${side}`)}
-        on:change={(e) => onChange(e, `margin-${side}`)}
-      />
-    {/each}
-    <div class="polish-box-border">
-      <span class="polish-box-label">border</span>
-      <div class="polish-box-padding">
-        <span class="polish-box-label">padding</span>
-        {#each SIDES as side}
-          <input
-            class="polish-box-value {side}"
-            data-property="padding-{side}"
-            value={getVal('padding', side)}
-            on:input={(e) => onInput(e, `padding-${side}`)}
-            on:change={(e) => onChange(e, `padding-${side}`)}
-          />
-        {/each}
-        <div class="polish-box-content">
-          <span class="polish-box-label dim">content</span>
+<div class="box-model">
+  <!-- Margin layer -->
+  <div class="layer margin-layer">
+    <span class="layer-label">margin</span>
+    <div class="side top">
+      <input value={getVal('margin','top')} on:input={(e) => onInput(e,'margin-top')} on:change={(e) => onChange(e,'margin-top')} />
+    </div>
+    <div class="side left">
+      <input value={getVal('margin','left')} on:input={(e) => onInput(e,'margin-left')} on:change={(e) => onChange(e,'margin-left')} />
+    </div>
+    <div class="inner">
+      <!-- Border layer -->
+      <div class="layer border-layer">
+        <span class="layer-label">border</span>
+        <div class="side top">
+          <input value={getVal('border','top') || '0'} readonly tabindex="-1" />
+        </div>
+        <div class="side left">
+          <input value={getVal('border','left') || '0'} readonly tabindex="-1" />
+        </div>
+        <div class="inner">
+          <!-- Padding layer -->
+          <div class="layer padding-layer">
+            <span class="layer-label">padding</span>
+            <div class="side top">
+              <input value={getVal('padding','top')} on:input={(e) => onInput(e,'padding-top')} on:change={(e) => onChange(e,'padding-top')} />
+            </div>
+            <div class="side left">
+              <input value={getVal('padding','left')} on:input={(e) => onInput(e,'padding-left')} on:change={(e) => onChange(e,'padding-left')} />
+            </div>
+            <div class="inner">
+              <div class="content-box">content</div>
+            </div>
+            <div class="side right">
+              <input value={getVal('padding','right')} on:input={(e) => onInput(e,'padding-right')} on:change={(e) => onChange(e,'padding-right')} />
+            </div>
+            <div class="side bottom">
+              <input value={getVal('padding','bottom')} on:input={(e) => onInput(e,'padding-bottom')} on:change={(e) => onChange(e,'padding-bottom')} />
+            </div>
+          </div>
+        </div>
+        <div class="side right">
+          <input value={getVal('border','right') || '0'} readonly tabindex="-1" />
+        </div>
+        <div class="side bottom">
+          <input value={getVal('border','bottom') || '0'} readonly tabindex="-1" />
         </div>
       </div>
+    </div>
+    <div class="side right">
+      <input value={getVal('margin','right')} on:input={(e) => onInput(e,'margin-right')} on:change={(e) => onChange(e,'margin-right')} />
+    </div>
+    <div class="side bottom">
+      <input value={getVal('margin','bottom')} on:input={(e) => onInput(e,'margin-bottom')} on:change={(e) => onChange(e,'margin-bottom')} />
     </div>
   </div>
 </div>
 
 <style>
-  .polish-box-model {
+  .box-model {
     width: 100%;
+    font-size: 10px;
   }
-  .polish-box-margin,
-  .polish-box-border,
-  .polish-box-padding {
+
+  .layer {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto 1fr auto;
+    align-items: center;
+    justify-items: center;
+    border: 1px dashed;
     position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 14px 24px;
-    border-radius: 3px;
   }
-  .polish-box-margin {
-    background: rgba(251, 191, 36, 0.08);
-    border: 1px dashed rgba(251, 191, 36, 0.3);
+
+  .margin-layer {
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.4);
   }
-  .polish-box-border {
-    width: 100%;
-    background: rgba(148, 163, 184, 0.08);
-    border: 1px dashed rgba(148, 163, 184, 0.3);
+  .border-layer {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.4);
   }
-  .polish-box-padding {
-    width: 100%;
-    background: rgba(134, 239, 172, 0.08);
-    border: 1px dashed rgba(134, 239, 172, 0.3);
+  .padding-layer {
+    background: rgba(134, 239, 172, 0.12);
+    border-color: rgba(134, 239, 172, 0.4);
   }
-  .polish-box-content {
-    width: 100%;
-    height: 24px;
-    background: rgba(147, 197, 253, 0.1);
-    border: 1px dashed rgba(147, 197, 253, 0.3);
-    border-radius: 2px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .polish-box-label {
+
+  .layer-label {
     position: absolute;
     top: 1px;
     left: 4px;
     font-size: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #777;
+    color: #888;
   }
-  .polish-box-label.dim {
-    position: static;
-    color: #666;
+
+  .side {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    min-height: 16px;
   }
-  .polish-box-value {
-    position: absolute;
-    width: 30px;
+
+  .side.top { grid-column: 2; grid-row: 1; padding: 2px 0; }
+  .side.left { grid-column: 1; grid-row: 2; padding: 0 4px; }
+  .side.right { grid-column: 3; grid-row: 2; padding: 0 4px; }
+  .side.bottom { grid-column: 2; grid-row: 3; padding: 2px 0; }
+
+  .inner {
+    grid-column: 2;
+    grid-row: 2;
+    width: 100%;
+  }
+
+  .content-box {
     text-align: center;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 2px;
+    padding: 4px 8px;
+    background: rgba(147, 197, 253, 0.12);
+    border: 1px dashed rgba(147, 197, 253, 0.4);
+    color: #888;
+    font-size: 9px;
+  }
+
+  input {
+    width: 28px;
+    text-align: center;
+    background: transparent;
+    border: none;
     color: #ccc;
     font-family: inherit;
     font-size: 10px;
-    padding: 1px 2px;
+    padding: 0;
     outline: none;
   }
-  .polish-box-value:focus {
-    border-color: #4A9EFF;
-    background: rgba(74, 158, 255, 0.1);
+  input:focus {
+    background: rgba(74, 158, 255, 0.15);
+    border-radius: 2px;
   }
-  .polish-box-value.top { top: 14px; left: 50%; transform: translateX(-50%); }
-  .polish-box-value.right { right: 2px; top: 50%; transform: translateY(-50%); }
-  .polish-box-value.bottom { bottom: 2px; left: 50%; transform: translateX(-50%); }
-  .polish-box-value.left { left: 2px; top: 50%; transform: translateY(-50%); }
+  input[readonly] {
+    color: #777;
+    cursor: default;
+  }
 </style>

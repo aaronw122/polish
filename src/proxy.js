@@ -25,14 +25,20 @@ function servePolishAsset(req, res) {
   if (urlPath === `${POLISH_PREFIX}overlay.js`) {
     // Serve the pre-built Svelte bundle — no runtime inlining needed
     const content = fs.readFileSync(OVERLAY_JS_PATH, 'utf-8');
-    res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store',
+    });
     res.end(content);
     return true;
   }
 
   if (urlPath === `${POLISH_PREFIX}overlay.css`) {
     const content = fs.readFileSync(OVERLAY_CSS_PATH, 'utf-8');
-    res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'text/css; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store',
+    });
     res.end(content);
     return true;
   }

@@ -4,7 +4,209 @@ import postcss from 'postcss';
 
 import { parseInlineStyles, serializeInlineStyles } from './css-utils.js';
 
-// ── Shorthand Expansion ─────────────────────────────────────────────
+// ── Shorthand / Longhand Relationship Map ───────────────────────────
+
+/**
+ * Data-driven map: shorthand property → array of longhand properties it governs.
+ *
+ * This powers `declAffectsProperty()` and `findGoverningDeclaration()`.
+ * When a shorthand is the governing declaration for a longhand, the writer
+ * inserts the longhand after the shorthand rather than trying to rewrite
+ * the shorthand value (which is lossy for complex shorthands like background/font).
+ */
+const SHORTHAND_MAP = {
+  // Spacing
+  padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
+  margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
+
+  // Border radius
+  'border-radius': [
+    'border-top-left-radius', 'border-top-right-radius',
+    'border-bottom-right-radius', 'border-bottom-left-radius',
+  ],
+
+  // Border (top-level shorthand)
+  border: [
+    'border-width', 'border-style', 'border-color',
+    'border-top-width', 'border-top-style', 'border-top-color',
+    'border-right-width', 'border-right-style', 'border-right-color',
+    'border-bottom-width', 'border-bottom-style', 'border-bottom-color',
+    'border-left-width', 'border-left-style', 'border-left-color',
+    'border-top', 'border-right', 'border-bottom', 'border-left',
+  ],
+
+  // Border directional shorthands
+  'border-top': ['border-top-width', 'border-top-style', 'border-top-color'],
+  'border-right': ['border-right-width', 'border-right-style', 'border-right-color'],
+  'border-bottom': ['border-bottom-width', 'border-bottom-style', 'border-bottom-color'],
+  'border-left': ['border-left-width', 'border-left-style', 'border-left-color'],
+
+  // Border component shorthands
+  'border-color': ['border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'],
+  'border-width': ['border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width'],
+  'border-style': ['border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style'],
+
+  // Background
+  background: [
+    'background-color', 'background-image', 'background-position',
+    'background-size', 'background-repeat', 'background-attachment',
+    'background-origin', 'background-clip',
+  ],
+
+  // Font
+  font: [
+    'font-family', 'font-size', 'font-weight', 'font-style',
+    'font-variant', 'font-stretch', 'line-height',
+  ],
+
+  // Outline
+  outline: ['outline-color', 'outline-style', 'outline-width'],
+
+  // Overflow
+  overflow: ['overflow-x', 'overflow-y'],
+
+  // Flex
+  flex: ['flex-grow', 'flex-shrink', 'flex-basis'],
+
+  // Gap
+  gap: ['row-gap', 'column-gap'],
+
+  // Place shorthands
+  'place-items': ['align-items', 'justify-items'],
+  'place-content': ['align-content', 'justify-content'],
+  'place-self': ['align-self', 'justify-self'],
+
+  // Text decoration
+  'text-decoration': ['text-decoration-color', 'text-decoration-style', 'text-decoration-line', 'text-decoration-thickness'],
+
+  // Transition
+  transition: ['transition-property', 'transition-duration', 'transition-timing-function', 'transition-delay'],
+
+  // Animation
+  animation: [
+    'animation-name', 'animation-duration', 'animation-timing-function',
+    'animation-delay', 'animation-iteration-count', 'animation-direction',
+    'animation-fill-mode', 'animation-play-state',
+  ],
+
+  // Inset
+  inset: ['top', 'right', 'bottom', 'left'],
+
+  // Grid gap (alias)
+  'grid-gap': ['grid-row-gap', 'grid-column-gap'],
+
+  // List style
+  'list-style': ['list-style-type', 'list-style-position', 'list-style-image'],
+
+  // Columns
+  columns: ['column-width', 'column-count'],
+
+  // Flex flow
+  'flex-flow': ['flex-direction', 'flex-wrap'],
+
+  // Grid template
+  'grid-template': ['grid-template-rows', 'grid-template-columns', 'grid-template-areas'],
+
+  // Grid
+  grid: [
+    'grid-template-rows', 'grid-template-columns', 'grid-template-areas',
+    'grid-auto-rows', 'grid-auto-columns', 'grid-auto-flow',
+  ],
+};
+
+/**
+ * Returns true if `declProp` affects `targetProp`:
+ * - exact match (declProp === targetProp)
+ * - declProp is a shorthand that contains targetProp as a longhand
+ */
+function declAffectsProperty(declProp, targetProp) {
+  if (declProp === targetProp) return true;
+  const longhands = SHORTHAND_MAP[declProp];
+  return longhands != null && longhands.includes(targetProp);
+}
+
+/**
+ * Walk all declarations in a rule and find the one that actually governs
+ * `targetProp` — either an exact longhand match or a shorthand that contains it.
+ * Uses source order and !important to pick the winner (later in source order wins
+ * at equal importance; !important always beats non-important).
+ *
+ * Returns { decl, kind: 'longhand'|'shorthand', important: boolean } or null.
+ */
+function findGoverningDeclaration(rule, targetProp) {
+  let winner = null;
+
+  rule.walkDecls((decl) => {
+    if (!declAffectsProperty(decl.prop, targetProp)) return;
+
+    const candidate = {
+      decl,
+      kind: decl.prop === targetProp ? 'longhand' : 'shorthand',
+      important: !!decl.important,
+    };
+
+    if (!winner) {
+      winner = candidate;
+      return;
+    }
+
+    // !important always beats non-important
+    if (candidate.important && !winner.important) {
+      winner = candidate;
+      return;
+    }
+    if (!candidate.important && winner.important) {
+      return;
+    }
+
+    // Same importance: later declaration in source order wins
+    winner = candidate;
+  });
+
+  return winner;
+}
+
+/**
+ * Insert (or update) a longhand declaration immediately after a governing
+ * shorthand. Copies formatting and !important from the shorthand.
+ *
+ * If a longhand with the same property already exists after the shorthand,
+ * update it in place instead of inserting a duplicate.
+ */
+function upsertLonghandAfterShorthand(rule, shorthandDecl, property, value) {
+  // Check if a longhand with this property already exists after the shorthand
+  let existingLonghand = null;
+  let passedShorthand = false;
+
+  rule.walkDecls((decl) => {
+    if (decl === shorthandDecl) {
+      passedShorthand = true;
+      return;
+    }
+    if (passedShorthand && decl.prop === property) {
+      existingLonghand = decl;
+    }
+  });
+
+  if (existingLonghand) {
+    existingLonghand.value = value;
+    if (shorthandDecl.important) {
+      existingLonghand.important = true;
+    }
+    return;
+  }
+
+  // Insert a new longhand immediately after the shorthand
+  const newDecl = postcss.decl({ prop: property, value });
+  newDecl.raws.before = shorthandDecl.raws.before;
+  newDecl.raws.between = shorthandDecl.raws.between || ': ';
+  if (shorthandDecl.important) {
+    newDecl.important = true;
+  }
+  shorthandDecl.parent.insertAfter(shorthandDecl, newDecl);
+}
+
+// ── Shorthand Expansion (padding/margin/border-radius/border) ───────
 
 const SPACING_LONGHANDS = {
   padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
@@ -28,7 +230,9 @@ const BORDER_STYLE_KEYWORDS = new Set([
 const BORDER_WIDTH_KEYWORDS = new Set(['thin', 'medium', 'thick']);
 
 /**
- * Maps a longhand property to its shorthand parent, if any.
+ * Maps a longhand property to its parent shorthand for the spacing/border-radius/border
+ * expansion path. This is only used by the expansion path — the generic governing-declaration
+ * mechanism uses SHORTHAND_MAP instead.
  */
 function shorthandFor(longhand) {
   for (const [shorthand, longhands] of Object.entries(SPACING_LONGHANDS)) {
@@ -61,19 +265,40 @@ function expandSpacingValue(value) {
 
 /**
  * Expand a border-radius shorthand into 4 longhand values.
- * Strips slash-based syntax (e.g., "10px / 5px") and uses the first half.
+ * Handles elliptical syntax (e.g., "10px / 5px") by combining horizontal
+ * and vertical radii into per-corner values like "10px 5px".
  */
 function expandBorderRadiusValue(value) {
-  const mainPart = value.split('/')[0].trim();
-  return expandSpacingValue(mainPart);
+  if (value.includes('/')) {
+    const [horizontalPart, verticalPart] = value.split('/').map((s) => s.trim());
+    const horizontals = expandSpacingValue(horizontalPart);
+    const verticals = expandSpacingValue(verticalPart);
+    return horizontals.map((h, i) => `${h} ${verticals[i]}`);
+  }
+  return expandSpacingValue(value);
+}
+
+/**
+ * Split a CSS value string into tokens, keeping parenthesized groups
+ * (e.g., rgb(...), hsl(...), var(...)) intact as single tokens.
+ */
+function tokenizeCssValue(value) {
+  const tokens = [];
+  const re = /[^\s(]+(\([^)]*\))?/g;
+  let m;
+  while ((m = re.exec(value)) !== null) {
+    tokens.push(m[0]);
+  }
+  return tokens;
 }
 
 /**
  * Expand a `border` shorthand into width, style, color components.
  * e.g., "1px solid red" -> { border-width: "1px", border-style: "solid", border-color: "red" }
+ * Handles functional colors like rgb(255, 0, 0) and hsl(120, 100%, 50%).
  */
 function expandBorderValue(value) {
-  const parts = value.trim().split(/\s+/);
+  const parts = tokenizeCssValue(value.trim());
 
   let width = '';
   let style = '';
@@ -150,8 +375,15 @@ function findDeclaration(rule, property) {
 
 /**
  * Apply a CSS property change to a PostCSS AST root.
- * Handles shorthand expansion, updating existing declarations,
- * adding new declarations, and appending new rules.
+ *
+ * Flow:
+ * 1. Find the target rule (or create one if none matches).
+ * 2. For padding/margin, keep the existing expansion behavior (nice normalization).
+ * 3. Otherwise, find the governing declaration for this property (the declaration
+ *    that actually controls it, considering source order and !important).
+ *    - If it is an exact longhand → update its value directly.
+ *    - If it is a shorthand → insert the longhand immediately after the shorthand.
+ *    - If none exists → append the property as a new declaration.
  *
  * Mutates and returns the root.
  */
@@ -166,24 +398,33 @@ function applyChange(root, selector, property, value, lineHint) {
   }
 
   const rule = disambiguateRule(rules, lineHint);
-  const parentShorthand = shorthandFor(property);
 
-  // If the source uses a shorthand containing our target longhand, expand it
-  if (parentShorthand) {
+  // For padding/margin, keep the existing expansion behavior
+  const parentShorthand = shorthandFor(property);
+  if (parentShorthand && SPACING_LONGHANDS[parentShorthand]) {
     const shorthandDecl = findDeclaration(rule, parentShorthand);
     if (shorthandDecl) {
       return expandShorthandAndSet(rule, shorthandDecl, parentShorthand, property, value);
     }
   }
 
-  // Direct write: update existing or append new declaration
-  const decl = findDeclaration(rule, property);
-  if (decl) {
-    decl.value = value;
-  } else {
+  // Generic: find the governing declaration for this property
+  const gov = findGoverningDeclaration(rule, property);
+
+  if (!gov) {
+    // No declaration affects this property — append it
     rule.append(postcss.decl({ prop: property, value }));
+    return root;
   }
 
+  if (gov.kind === 'longhand') {
+    // Exact property exists — update it
+    gov.decl.value = value;
+    return root;
+  }
+
+  // Governing declaration is a shorthand — insert longhand after it
+  upsertLonghandAfterShorthand(rule, gov.decl, property, value);
   return root;
 }
 
@@ -208,11 +449,17 @@ function expandShorthandAndSet(rule, shorthandDecl, shorthandProp, targetProp, t
     between: shorthandDecl.raws.between || ': ',
   };
 
+  // Preserve !important from the shorthand on all expanded longhands
+  const isImportant = !!shorthandDecl.important;
+
   // Replace the shorthand with the individual longhands
   for (let i = longhands.length - 1; i >= 0; i--) {
     const newDecl = postcss.decl({ prop: longhands[i].prop, value: longhands[i].value });
     newDecl.raws.before = raws.before;
     newDecl.raws.between = raws.between;
+    if (isImportant) {
+      newDecl.important = true;
+    }
     shorthandDecl.parent.insertAfter(shorthandDecl, newDecl);
   }
 
@@ -380,7 +627,10 @@ async function writeInlineStyle(filePath, selector, property, value, lineHint) {
   } else {
     const selectorInfo = parseSelectorForLineMatching(selector);
     const candidates = findMatchingLineIndices(lines, selectorInfo);
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) {
+      console.warn(`Polish: writeInlineStyle found no element matching selector "${selector}" in ${filePath}`);
+      return;
+    }
     targetLineIndex = pickClosestCandidate(candidates, lineHint);
   }
 
@@ -494,6 +744,19 @@ function resolveWriteStrategy(file) {
  */
 export function createWriter(projectDir) {
   const pending = new Map();
+  /** Per-file promise chains to serialize flushes targeting the same file. */
+  const fileChains = new Map();
+
+  /**
+   * Execute a flush within the per-file serialization chain so that
+   * concurrent flushes to the same file never race each other.
+   */
+  function enqueueFlush(filePath, fn) {
+    const prev = fileChains.get(filePath) || Promise.resolve();
+    const next = prev.then(fn, fn); // always chain, even after rejection
+    fileChains.set(filePath, next);
+    return next;
+  }
 
   async function flush(key) {
     const entry = pending.get(key);
@@ -502,17 +765,19 @@ export function createWriter(projectDir) {
 
     const { filePath, selector, property, value, lineHint, styleType } = entry;
 
-    try {
-      if (styleType === 'inline') {
-        await writeInlineStyle(filePath, selector, property, value, lineHint);
-      } else if (styleType === 'style-block') {
-        await writeStyleBlock(filePath, selector, property, value, lineHint);
-      } else {
-        await writeCssFile(filePath, selector, property, value, lineHint);
+    return enqueueFlush(filePath, async () => {
+      try {
+        if (styleType === 'inline') {
+          await writeInlineStyle(filePath, selector, property, value, lineHint);
+        } else if (styleType === 'style-block') {
+          await writeStyleBlock(filePath, selector, property, value, lineHint);
+        } else {
+          await writeCssFile(filePath, selector, property, value, lineHint);
+        }
+      } catch (err) {
+        console.error(`Polish: write-back error for ${filePath}:`, err.message);
       }
-    } catch (err) {
-      console.error(`Polish: write-back error for ${filePath}:`, err.message);
-    }
+    });
   }
 
   /**
@@ -558,6 +823,8 @@ export function createWriter(projectDir) {
 
   /**
    * Immediately flush all pending writes (e.g., on "flush" signal).
+   * Flushes are serialized per-file via enqueueFlush, so concurrent
+   * writes to the same file execute sequentially.
    */
   async function flushAll() {
     const keys = [...pending.keys()];
@@ -565,7 +832,10 @@ export function createWriter(projectDir) {
       const entry = pending.get(key);
       if (entry?.timer) clearTimeout(entry.timer);
     }
-    await Promise.all(keys.map((key) => flush(key)));
+    // Kick off all flushes — enqueueFlush serializes per-file internally
+    keys.forEach((key) => flush(key));
+    // Wait for all per-file chains to settle
+    await Promise.all([...fileChains.values()]);
   }
 
   return {
@@ -582,6 +852,9 @@ export {
   expandBorderRadiusValue as _expandBorderRadiusValue,
   expandBorderValue as _expandBorderValue,
   shorthandFor as _shorthandFor,
+  declAffectsProperty as _declAffectsProperty,
+  findGoverningDeclaration as _findGoverningDeclaration,
+  upsertLonghandAfterShorthand as _upsertLonghandAfterShorthand,
   writeCssFile as _writeCssFile,
   writeStyleBlock as _writeStyleBlock,
   writeInlineStyle as _writeInlineStyle,

@@ -6,10 +6,38 @@
   } from './stores/state.js';
   import {
     isPolishElement, formatLabel, describeElement,
-    buildInfoHTML,
+    buildInfoHTML, isOverlayToggleShortcut,
   } from './lib/utils.js';
   import { connect, send, setMessageHandler } from './lib/socket.js';
   import Panel from './Panel.svelte';
+
+  // ── Fallback selector builder ───────────────────────────────────
+  // When the resolver finds no matching CSS rule, build a reasonable
+  // selector using the element and its nearest classed/id'd ancestor.
+
+  function buildFallbackSelector(el) {
+    const desc = describeElement(el);
+    let selfPart;
+    if (desc.id) {
+      selfPart = '#' + desc.id;
+    } else if (desc.classes.length) {
+      selfPart = '.' + desc.classes.join('.');
+    } else {
+      selfPart = desc.tag;
+    }
+
+    // Walk up to find a parent with a class or id for context
+    let parent = el.parentElement;
+    while (parent && parent !== document.body && parent !== document.documentElement) {
+      if (parent.id) return '#' + parent.id + ' ' + selfPart;
+      if (parent.classList.length > 0) {
+        return '.' + Array.from(parent.classList).join('.') + ' ' + selfPart;
+      }
+      parent = parent.parentElement;
+    }
+
+    return selfPart;
+  }
 
   // ── Overlay DOM refs ────────────────────────────────────────────
   let hoverBox, hoverLabel, selectBox, selectLabel, infoPanel;
@@ -101,6 +129,7 @@
   // ── Selection ───────────────────────────────────────────────────
   function selectEl(el) {
     $selectedElement = el;
+    startLivenessCheck();
     const rect = el.getBoundingClientRect();
 
     if (selectLabel) selectLabel.textContent = formatLabel(el);
@@ -111,11 +140,22 @@
     $panelVisible = true;
 
     const { tag, id, classes } = describeElement(el);
+
+    // Build ancestor chain so the resolver can match descendant selectors
+    const ancestors = [];
+    let parent = el.parentElement;
+    while (parent && parent !== document.body && parent !== document.documentElement) {
+      const desc = describeElement(parent);
+      ancestors.push({ tag: desc.tag, id: desc.id, classes: desc.classes });
+      parent = parent.parentElement;
+    }
+
     send({
       type: 'select',
       tag,
       id,
       classes,
+      ancestors,
       inlineStyles: el.getAttribute('style') || '',
       rect: {
         top: Math.round(rect.top),
@@ -127,6 +167,7 @@
   }
 
   function deselectEl() {
+    stopLivenessCheck();
     $selectedElement = null;
     hideBox(selectBox, selectLabel);
     if (infoPanel) infoPanel.style.display = 'none';
@@ -137,7 +178,7 @@
 
   // ── Event handlers ──────────────────────────────────────────────
   function onMouseMove(e) {
-    if (!$active) return;
+    if (!$active) { return; }
     const target = e.target;
     if (isPolishElement(target)) {
       hideBox(hoverBox, hoverLabel);
@@ -159,6 +200,7 @@
   }
 
   function onClick(e) {
+    console.log('[Polish] click captured, active:', $active, 'target:', e.target.tagName);
     if (!$active) return;
     const target = e.target;
     if (isPolishElement(target)) return;
@@ -175,13 +217,12 @@
   }
 
   function onKeyDown(e) {
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    const modifier = isMac ? e.metaKey : e.ctrlKey;
-
-    if (modifier && e.shiftKey && e.key === 'P') {
+    if (isOverlayToggleShortcut(e, navigator.platform)) {
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
       toggleOverlay();
+      return;
     }
 
     if ($active && $selectedElement && e.key === 'Escape') {
@@ -191,6 +232,7 @@
 
     // Tab / Shift+Tab: cycle to sibling elements
     if ($active && $selectedElement && e.key === 'Tab') {
+      if (!$selectedElement.isConnected) { deselectEl(); return; }
       e.preventDefault();
       e.stopPropagation();
       const parent = $selectedElement.parentElement;
@@ -219,13 +261,14 @@
       positionBox(hoverBox, hoverLabel, rect);
     }
     if ($selectedElement) {
+      if (!$selectedElement.isConnected) {
+        deselectEl();
+        return;
+      }
       const rect = $selectedElement.getBoundingClientRect();
       if (selectLabel) selectLabel.textContent = formatLabel($selectedElement);
       positionBox(selectBox, selectLabel, rect);
       positionInfoPanel(rect);
-      if ($panelVisible && panelComponent) {
-        panelComponent.reposition();
-      }
     }
   }
 
@@ -248,17 +291,15 @@
     let file = message.file;
     let selector = message.selector;
 
-    // No-source fallback
+    // No-source fallback: build a selector and target the first known CSS file
     if (!selector && $selectedElement) {
-      const desc = describeElement($selectedElement);
-      if (desc.id) {
-        selector = '#' + desc.id;
-      } else if (desc.classes.length) {
-        selector = '.' + desc.classes.join('.');
-      } else {
-        selector = desc.tag;
-      }
-      file = cssFiles[0] || 'polish-overrides.css';
+      selector = buildFallbackSelector($selectedElement);
+      file = cssFiles[0] || file;
+    }
+
+    // If file is still null/unknown, try the first CSS file
+    if ((!file || file === 'unknown') && cssFiles.length > 0) {
+      file = cssFiles[0];
     }
 
     $sourceData = {
@@ -266,8 +307,11 @@
       selector,
       line: message.line,
       properties: message.properties || {},
+      styleType: message.styleType || null,
+      cssRule: message.cssRule || null,
       cssFiles,
       matchedRules,
+      pseudoStates: message.pseudoStates || {},
     };
   }
 
@@ -296,6 +340,10 @@
 
       newLink.onload = () => {
         link.remove();
+        // CSS is now active — safe to drop inline previews
+        if (panelComponent && panelComponent.clearPreviews) {
+          panelComponent.clearPreviews();
+        }
       };
 
       newLink.onerror = () => {
@@ -310,25 +358,53 @@
   const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const modKey = isMac ? 'Cmd' : 'Ctrl';
 
+  // ── Liveness check for selected element ─────────────────────────
+  // SPA frameworks (React, Vue, Svelte) replace DOM nodes on re-render.
+  // The stored reference becomes detached — getBoundingClientRect()
+  // returns zeros, and the overlay/panel display incorrectly.
+  // Check on a short interval and clear the selection if the node
+  // is no longer in the DOM.
+  let livenessInterval;
+
+  function startLivenessCheck() {
+    stopLivenessCheck();
+    livenessInterval = setInterval(() => {
+      if ($selectedElement && !$selectedElement.isConnected) {
+        deselectEl();
+      }
+    }, 500);
+  }
+
+  function stopLivenessCheck() {
+    if (livenessInterval) {
+      clearInterval(livenessInterval);
+      livenessInterval = null;
+    }
+  }
+
   // ── Lifecycle ───────────────────────────────────────────────────
-  onMount(() => {
+  // NOTE: onMount doesn't fire reliably in closed Shadow DOM.
+  // Initialization is done via init() called from main.js.
+  export function init() {
+    console.log('[Polish] init() called, attaching listeners');
+    window.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('mouseout', onMouseOut, true);
     document.addEventListener('click', onClick, true);
-    document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
 
     setMessageHandler(handleServerMessage);
     connect();
     showShortcutHint();
-  });
+  }
 
   onDestroy(() => {
+    stopLivenessCheck();
+    window.removeEventListener('keydown', onKeyDown, true);
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mouseout', onMouseOut, true);
     document.removeEventListener('click', onClick, true);
-    document.removeEventListener('keydown', onKeyDown, true);
     window.removeEventListener('scroll', onScroll, true);
     window.removeEventListener('resize', onScroll);
   });
@@ -372,7 +448,7 @@
   </div>
 {/if}
 
-<!-- Panel (when an element is selected) -->
+<!-- Panel (when an element is selected). Keep the instance stable across edits. -->
 {#if $panelVisible && $selectedElement}
   <Panel
     bind:this={panelComponent}
