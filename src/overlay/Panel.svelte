@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { CONTROL_SCHEMA, SPACING_PROPS } from './lib/schema.js';
+  import { CONTROL_SCHEMA, SPACING_PROPS, LAYOUT_PROPS } from './lib/schema.js';
   import {
     rgbToHex, parseNumericValue, clampValue, cssToCamel,
     computePanelPosition, DEBOUNCE_MS,
@@ -11,6 +11,7 @@
   import SliderControl from './controls/SliderControl.svelte';
   import SelectControl from './controls/SelectControl.svelte';
   import BoxModel from './controls/BoxModel.svelte';
+  import LayoutControl from './controls/LayoutControl.svelte';
 
   export let element = null;
 
@@ -32,6 +33,9 @@
   let spacingValues = {};
   let normalControlValues = {};
   let normalSpacingValues = {};
+  let layoutValues = {};
+  let normalLayoutValues = {};
+  let layoutDisplayValue = 'block';
   let shorthandProps = new Set();
   let pseudoClasses = new Set();
   let primaryMediaQuery = null;
@@ -68,6 +72,7 @@
     if (activeState === 'normal') {
       controlValues = { ...normalControlValues };
       spacingValues = { ...normalSpacingValues };
+      layoutValues = { ...normalLayoutValues };
     } else {
       const src = $sourceData;
       const pseudoState = src && src.pseudoStates && src.pseudoStates[activeState];
@@ -121,6 +126,15 @@
     spacingValues = sv;
     normalSpacingValues = { ...sv };
 
+    // Layout
+    const lv = {};
+    LAYOUT_PROPS.forEach(prop => {
+      lv[prop] = computed.getPropertyValue(prop);
+    });
+    layoutValues = lv;
+    normalLayoutValues = { ...lv };
+    layoutDisplayValue = computed.display;
+
   }
 
   // ── Update panel from authored source data ──────────────────────
@@ -140,6 +154,19 @@
         }
       }
       controlValues = controlValues; // trigger reactivity
+    }
+
+    // Layout props (not in CONTROL_SCHEMA, need their own sync loop)
+    if (src.properties) {
+      for (const prop of LAYOUT_PROPS) {
+        if (prop in src.properties) {
+          layoutValues[prop] = src.properties[prop];
+        }
+      }
+      if ('display' in src.properties) {
+        layoutDisplayValue = src.properties['display'];
+      }
+      layoutValues = layoutValues; // trigger reactivity
     }
 
     // Shorthand badges
@@ -360,6 +387,29 @@
     sendChangeImmediate(property, value);
   }
 
+  function onLayoutInput(e) {
+    const { property, value } = e.detail;
+    layoutValues[property] = value;
+
+    applyLivePreview(property, value);
+    debounceSendChange(property, value);
+  }
+
+  function onLayoutChange(e) {
+    const { property, value } = e.detail;
+    layoutValues[property] = value;
+
+    applyLivePreview(property, value);
+    sendChangeImmediate(property, value);
+
+    // Auto-set display:flex if not already flex
+    if (layoutDisplayValue !== 'flex' && layoutDisplayValue !== 'inline-flex') {
+      layoutDisplayValue = 'flex';
+      applyLivePreview('display', 'flex');
+      sendChangeImmediate('display', 'flex');
+    }
+  }
+
   // ── Section collapse ────────────────────────────────────────────
   function toggleSection(id) {
     collapsedSections[id] = !collapsedSections[id];
@@ -446,6 +496,7 @@
       result.push(s);
       if (s.id === 'size') {
         result.push({ section: 'Spacing', id: 'spacing', controls: null });
+        result.push({ section: 'Layout', id: 'layout', controls: null });
       }
     }
     return result;
@@ -539,6 +590,13 @@
                 </div>
               {/if}
             </div>
+          {:else if sectionDef.id === 'layout'}
+            <LayoutControl
+              values={layoutValues}
+              displayValue={layoutDisplayValue}
+              on:input={onLayoutInput}
+              on:change={onLayoutChange}
+            />
           {:else if sectionDef.controls}
             {#each sectionDef.controls as def}
               {#if def.type === 'color'}
