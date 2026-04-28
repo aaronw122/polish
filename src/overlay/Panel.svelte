@@ -410,8 +410,10 @@
 
     applyLivePreview(property, value);
     sendChangeImmediate(property, value);
+    ensureFlexDisplay();
+  }
 
-    // Auto-set display:flex if not already flex
+  function ensureFlexDisplay() {
     if (layoutDisplayValue !== 'flex' && layoutDisplayValue !== 'inline-flex') {
       layoutDisplayValue = 'flex';
       applyLivePreview('display', 'flex');
@@ -498,8 +500,8 @@
     return def.options;
   }
 
-  // Build schema sections, inserting Spacing between Size and Effects
-  function getSectionsWithSpacing() {
+  // Build panel sections: schema-driven controls plus custom sections (Spacing, Layout)
+  function getPanelSections() {
     const result = [];
     for (const s of CONTROL_SCHEMA) {
       result.push(s);
@@ -511,7 +513,7 @@
     return result;
   }
 
-  $: sections = getSectionsWithSpacing();
+  $: sections = getPanelSections();
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
