@@ -1,6 +1,6 @@
 # Polish
 
-Visual CSS editor that runs on your live page. Click any element, tweak its styles in a properties panel, and changes write back to your source CSS files.
+Visual CSS editor that runs on localhost. Click any element, tweak its styles in a properties panel, and changes write back to your source CSS files.
 
 ## Usage
 
