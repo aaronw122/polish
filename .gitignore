@@ -1,2 +1,4 @@
 conversations/
 node_modules/
+notes/
+.playwright-mcp

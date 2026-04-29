@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polish Test Page</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="components.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1>Polish Test Page</h1>
+    <nav>
+      <a href="#" class="nav-link active">Home</a>
+      <a href="#" class="nav-link">About</a>
+      <a href="#" class="nav-link">Contact</a>
+    </nav>
+  </header>
+
+  <main class="content">
+    <section class="hero">
+      <h2>Visual CSS Editing</h2>
+      <p class="hero-text">Click any element to edit its styles in real time.</p>
+      <button class="btn btn-primary">Get Started</button>
+    </section>
+
+    <div class="card-grid">
+      <div class="card">
+        <h3>Colors</h3>
+        <p>Background, text, and border colors with hex picker.</p>
+      </div>
+      <div class="card">
+        <h3>Typography</h3>
+        <p>Font family, size, and weight controls.</p>
+      </div>
+      <div class="card">
+        <h3>Spacing</h3>
+        <p>Margin and padding with box model visualization.</p>
+      </div>
+    </div>
+
+    <section class="features">
+      <div class="feature" style="color: #333;">
+        <h3>Inline Style Test</h3>
+        <p>This element has an inline style for testing inline write-back.</p>
+      </div>
+      <div class="feature">
+        <h3>Nested Selectors</h3>
+        <p>Test <strong>nested</strong> and <em>compound</em> selectors.</p>
+      </div>
+    </section>
+
+    <section class="testimonials">
+      <h2>What People Say</h2>
+      <div class="testimonial-grid">
+        <blockquote class="testimonial">
+          <p>"Polish completely changed how I prototype. I can tweak spacing and colors right on the live page without switching back to my editor."</p>
+          <cite>— Alex, Frontend Developer</cite>
+        </blockquote>
+        <blockquote class="testimonial">
+          <p>"I used to spend ages going back and forth between DevTools and my CSS files. Now I just click and drag."</p>
+          <cite>— Sam, Designer</cite>
+        </blockquote>
+        <blockquote class="testimonial">
+          <p>"The box model visualization alone is worth it. Being able to see and edit padding and margin visually is a game changer."</p>
+          <cite>— Jordan, Full-Stack Engineer</cite>
+        </blockquote>
+      </div>
+    </section>
+
+    <section class="stats-bar">
+      <div class="stat">
+        <span class="stat-number">12</span>
+        <span class="stat-label">CSS Properties</span>
+      </div>
+      <div class="stat">
+        <span class="stat-number">2</span>
+        <span class="stat-label">Stylesheets</span>
+      </div>
+      <div class="stat">
+        <span class="stat-number">0ms</span>
+        <span class="stat-label">Write Latency</span>
+      </div>
+      <div class="stat">
+        <span class="stat-number">100%</span>
+        <span class="stat-label">Live Preview</span>
+      </div>
+    </section>
+
+    <section class="faq">
+      <h2>Frequently Asked Questions</h2>
+      <details class="faq-item">
+        <summary>How does Polish write changes back to my files?</summary>
+        <p>Polish watches your CSS files and uses PostCSS to parse and surgically update declarations. It preserves your formatting, comments, and file structure.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Does it work with preprocessors like Sass or Less?</summary>
+        <p>Polish operates on compiled CSS files. If you're using a build tool that outputs .css files, Polish can edit those. Direct .scss/.less editing is on the roadmap.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Can I use it with frameworks like React or Vue?</summary>
+        <p>Yes. Polish proxies your dev server and injects the overlay. It works with any framework that serves HTML pages — React, Vue, Svelte, plain HTML, anything.</p>
+      </details>
+      <details class="faq-item">
+        <summary>What happens if I edit a shorthand property like border?</summary>
+        <p>Polish expands shorthands into their longhand equivalents and writes the specific property you changed. Your shorthand declaration stays intact.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Is my code safe? Can Polish corrupt my files?</summary>
+        <p>Polish uses atomic writes and validates all changes before flushing to disk. It only modifies the specific declaration you changed — nothing else in the file is touched.</p>
+      </details>
+    </section>
+
+    <section class="cta">
+      <h2>Ready to try it?</h2>
+      <p class="cta-text">Install Polish and start editing your CSS visually in under a minute.</p>
+      <div class="cta-code">
+        <code>npx polish --dir ./my-site</code>
+      </div>
+      <button class="btn btn-primary">View on GitHub</button>
+    </section>
+
+    <section class="changelog">
+      <h2>Recent Changes</h2>
+      <ul class="changelog-list">
+        <li class="changelog-entry">
+          <time>2026-04-27</time>
+          <span>Fixed concurrent write race condition in the CSS writer</span>
+        </li>
+        <li class="changelog-entry">
+          <time>2026-04-27</time>
+          <span>Added WebSocket origin validation for security</span>
+        </li>
+        <li class="changelog-entry">
+          <time>2026-04-27</time>
+          <span>Fixed border shorthand expansion for rgb()/hsl() colors</span>
+        </li>
+        <li class="changelog-entry">
+          <time>2026-04-25</time>
+          <span>Added box model visualization with interactive controls</span>
+        </li>
+        <li class="changelog-entry">
+          <time>2026-04-23</time>
+          <span>Implemented pseudo-state editing (:hover, :focus, :active)</span>
+        </li>
+        <li class="changelog-entry">
+          <time>2026-04-21</time>
+          <span>Initial release with color, typography, and spacing controls</span>
+        </li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>&copy; 2026 Polish Test</p>
+  </footer>
+</body>
+</html>

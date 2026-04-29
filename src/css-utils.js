@@ -1,0 +1,257 @@
+import postcss from 'postcss';
+
+// ── Specificity ─────────────────────────────────────────────────────
+
+/**
+ * Calculate CSS specificity for a selector string.
+ * Returns [inline, ids, classes, types] tuple.
+ */
+export function calculateSpecificity(selector) {
+  let ids = 0;
+  let classes = 0;
+  let types = 0;
+
+  // Remove :not() wrapper but keep its contents for specificity
+  const withoutNot = selector.replace(/:not\(([^)]*)\)/g, ' $1 ');
+
+  // Remove :where() and its contents entirely (zero specificity)
+  const withoutWhere = withoutNot.replace(/:where\(([^)]*)\)/g, '');
+
+  // Remove :is() wrapper but keep its contents (specificity of most specific argument)
+  const withoutIs = withoutWhere.replace(/:is\(([^)]*)\)/g, ' $1 ');
+
+  // Remove attribute selectors content, count them as classes
+  const withoutAttrs = withoutIs.replace(/\[[^\]]*\]/g, () => {
+    classes++;
+    return '';
+  });
+
+  // Remove pseudo-elements (::before, ::after, etc.) -- count as type
+  const withoutPseudoElements = withoutAttrs.replace(/::[a-zA-Z-]+/g, () => {
+    types++;
+    return '';
+  });
+
+  // Remove pseudo-classes (:hover, :focus, etc.) -- count as class
+  const withoutPseudoClasses = withoutPseudoElements.replace(/:[a-zA-Z-]+/g, () => {
+    classes++;
+    return '';
+  });
+
+  // Count ID selectors
+  const idMatches = withoutPseudoClasses.match(/#[a-zA-Z_-][a-zA-Z0-9_-]*/g);
+  if (idMatches) ids += idMatches.length;
+
+  // Count class selectors
+  const classMatches = withoutPseudoClasses.match(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g);
+  if (classMatches) classes += classMatches.length;
+
+  // Remove IDs and classes to count remaining type selectors
+  const stripped = withoutPseudoClasses
+    .replace(/#[a-zA-Z_-][a-zA-Z0-9_-]*/g, '')
+    .replace(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g, '')
+    .replace(/[>+~*,]/g, ' ')
+    .trim();
+
+  const typeMatches = stripped.match(/[a-zA-Z][a-zA-Z0-9-]*/g);
+  if (typeMatches) types += typeMatches.length;
+
+  return [0, ids, classes, types];
+}
+
+/**
+ * Compare two specificity tuples. Returns positive if a > b, negative if a < b, 0 if equal.
+ */
+export function compareSpecificity(a, b) {
+  for (let i = 0; i < 4; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
+// ── Pseudo-Class Detection ──────────────────────────────────────────
+
+/**
+ * Detect pseudo-class selectors in a selector string.
+ * Returns a deduplicated array of pseudo-class names (e.g., [':hover', ':focus']).
+ * Excludes :not() since it is a functional pseudo-class, not a state.
+ */
+export function detectPseudoClasses(selectorStr) {
+  const pseudos = [];
+  // Match pseudo-classes (single colon) but not pseudo-elements (double colon)
+  const matches = selectorStr.match(/(?<!:):[a-zA-Z-]+/g);
+  if (matches) {
+    for (const m of matches) {
+      if (m !== ':not') {
+        pseudos.push(m);
+      }
+    }
+  }
+  return [...new Set(pseudos)];
+}
+
+// ── Selector Parsing ────────────────────────────────────────────────
+
+/**
+ * Parse a compound selector (no combinators) into its constituent parts.
+ * e.g. "div.card#main" => { tag: "div", id: "main", classes: ["card"] }
+ */
+export function parseCompoundSelector(compound) {
+  const result = { tag: null, id: null, classes: [] };
+  const trimmed = compound.trim();
+  if (!trimmed || trimmed === '*') return result;
+
+  const idMatch = trimmed.match(/#([a-zA-Z_-][a-zA-Z0-9_-]*)/g);
+  if (idMatch) {
+    result.id = idMatch[idMatch.length - 1].slice(1);
+  }
+
+  const classMatches = trimmed.match(/\.([a-zA-Z_-][a-zA-Z0-9_-]*)/g);
+  if (classMatches) {
+    result.classes = classMatches.map((c) => c.slice(1));
+  }
+
+  // Tag must appear at the start, before any . or #
+  const tagMatch = trimmed.match(/^([a-zA-Z][a-zA-Z0-9-]*)/);
+  if (tagMatch) {
+    result.tag = tagMatch[1].toLowerCase();
+  }
+
+  return result;
+}
+
+// ── Element Matching ────────────────────────────────────────────────
+
+/**
+ * Test if an element (described by { tag, id, classes }) matches a single compound selector.
+ */
+export function matchesCompound(element, compound) {
+  const sel = parseCompoundSelector(compound);
+
+  if (sel.tag && sel.tag !== element.tag?.toLowerCase()) return false;
+  if (sel.id && sel.id !== element.id) return false;
+  for (const cls of sel.classes) {
+    if (!element.classes?.includes(cls)) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Test if an element matches a full selector string.
+ *
+ * Handles comma-separated selector groups by testing each independently.
+ * When ancestors are provided, verifies ancestor compounds in descendant
+ * selectors (e.g., `.card h3`) match actual DOM ancestors.
+ */
+export function matchesSelector(element, selectorStr, ancestors) {
+  const groups = selectorStr.split(',').map((s) => s.trim());
+
+  for (const group of groups) {
+    // Parse selector into parts with their preceding combinators
+    // e.g. ".parent > .child .item" => [{sel:".parent",comb:null},{sel:".child",comb:">"},{sel:".item",comb:" "}]
+    const tokens = [];
+    const re = /([>+~])\s*|(\s+)/g;
+    const selectorParts = group.trim().split(re).filter((t) => t != null && t.trim() !== '');
+    let currentCombinator = null;
+    for (const token of selectorParts) {
+      if (/^[>+~]$/.test(token)) {
+        currentCombinator = token;
+      } else {
+        tokens.push({ sel: token.trim(), comb: currentCombinator });
+        currentCombinator = ' '; // default to descendant
+      }
+    }
+    if (tokens.length === 0) continue;
+
+    const keySelector = tokens[tokens.length - 1].sel;
+
+    if (!matchesCompound(element, keySelector)) continue;
+
+    // Simple selector (no ancestors needed)
+    if (tokens.length === 1) return true;
+
+    // No ancestor info — fall back to key-selector-only match
+    if (!ancestors || ancestors.length === 0) return true;
+
+    // Verify ancestor parts match actual ancestors respecting combinators
+    let ancestorIdx = 0;
+    let allFound = true;
+    for (let i = tokens.length - 2; i >= 0; i--) {
+      const combinator = tokens[i + 1].comb;
+
+      if (combinator === '+' || combinator === '~') {
+        // Sibling combinators: cannot verify via ancestor chain alone.
+        // Treat as satisfied — the key selector already matched.
+        continue;
+      }
+
+      if (combinator === '>') {
+        // Child combinator: must be the immediate next ancestor
+        if (ancestorIdx >= ancestors.length) { allFound = false; break; }
+        if (matchesCompound(ancestors[ancestorIdx], tokens[i].sel)) {
+          ancestorIdx++;
+        } else {
+          allFound = false;
+          break;
+        }
+      } else {
+        // Descendant combinator (space): ancestor can be anywhere up the chain
+        let found = false;
+        while (ancestorIdx < ancestors.length) {
+          if (matchesCompound(ancestors[ancestorIdx], tokens[i].sel)) {
+            ancestorIdx++;
+            found = true;
+            break;
+          }
+          ancestorIdx++;
+        }
+        if (!found) { allFound = false; break; }
+      }
+    }
+
+    if (allFound) return true;
+  }
+
+  return false;
+}
+
+// ── Inline Style Parsing ────────────────────────────────────────────
+
+/**
+ * Parse an inline style string into a property-value map.
+ * Uses PostCSS for robust parsing, with a simple-split fallback.
+ */
+export function parseInlineStyles(styleStr) {
+  const properties = {};
+  if (!styleStr) return properties;
+
+  try {
+    const root = postcss.parse(`__inline__ { ${styleStr} }`);
+    root.walkDecls((decl) => {
+      properties[decl.prop] = decl.value;
+    });
+  } catch {
+    // Fallback: semicolon-delimited split
+    const parts = styleStr.split(';').filter(Boolean);
+    for (const part of parts) {
+      const colonIdx = part.indexOf(':');
+      if (colonIdx > 0) {
+        const prop = part.slice(0, colonIdx).trim();
+        const val = part.slice(colonIdx + 1).trim();
+        if (prop) properties[prop] = val;
+      }
+    }
+  }
+
+  return properties;
+}
+
+/**
+ * Serialize a property-value map back into an inline style string.
+ */
+export function serializeInlineStyles(styles) {
+  return Object.entries(styles)
+    .map(([prop, val]) => `${prop}: ${val}`)
+    .join('; ');
+}
