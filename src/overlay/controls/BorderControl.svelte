@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { rgbToHex, parseNumericValue } from '../lib/utils.js';
+  import PickrSwatch from './PickrSwatch.svelte';
 
   export let values = {};
 
@@ -66,10 +67,10 @@
   }
 
   function onColorInput(e) {
-    emitInput('border-color', e.target.value);
+    emitInput('border-color', e.detail.value);
   }
   function onColorChange(e) {
-    emitChange('border-color', e.target.value);
+    emitChange('border-color', e.detail.value);
   }
 
   function onWidthInput(e) {
@@ -118,15 +119,11 @@
 <div class="border-control">
   <!-- Color row -->
   <div class="border-row">
-    <div class="border-swatch">
-      <input
-        type="color"
-        class="border-color-picker"
-        value={currentHex}
-        on:input={onColorInput}
-        on:change={onColorChange}
-      />
-    </div>
+    <PickrSwatch
+      color={currentHex}
+      on:input={onColorInput}
+      on:change={onColorChange}
+    />
     <input
       type="text"
       class="border-hex"
@@ -204,28 +201,6 @@
     align-items: center;
     gap: 4px;
   }
-
-  /* Color swatch */
-  .border-swatch {
-    position: relative;
-    width: 28px;
-    height: 22px;
-    flex-shrink: 0;
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .border-color-picker {
-    width: 100%;
-    height: 100%;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 3px;
-    padding: 0;
-    cursor: pointer;
-    background: none;
-    -webkit-appearance: none;
-  }
-  .border-color-picker::-webkit-color-swatch-wrapper { padding: 1px; }
-  .border-color-picker::-webkit-color-swatch { border: none; border-radius: 2px; }
 
   .border-hex {
     flex: 1;
