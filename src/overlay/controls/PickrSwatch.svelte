@@ -22,6 +22,9 @@
   let commitTimer;
 
   const DARK_OVERRIDES = `
+    .pcr-button {
+      display: none !important;
+    }
     .pcr-app[data-theme="nano"] {
       background: rgba(30, 30, 30, 0.98);
       border-radius: 6px;
@@ -277,8 +280,8 @@
   .pickr-popup {
     display: none;
     position: absolute;
-    left: 0;
-    top: calc(100% + 4px);
+    right: calc(100% + 6px);
+    top: 0;
     z-index: 200;
     width: 260px;
   }
