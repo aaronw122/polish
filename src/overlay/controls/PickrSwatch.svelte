@@ -117,8 +117,7 @@
   function togglePicker() {
     pickerOpen = !pickerOpen;
     if (pickerOpen && !pickrInstance) {
-      // Wait a tick for the container to render before creating pickr
-      requestAnimationFrame(createPickr);
+      createPickr();
     }
   }
 
@@ -233,11 +232,9 @@
     <div class="swatch-fill" style="background-color: {isTransparent ? 'transparent' : color}"></div>
   </div>
 
-  {#if pickerOpen}
-    <div class="pickr-inline">
-      <div bind:this={pickrEl}></div>
-    </div>
-  {/if}
+  <div class="pickr-inline" class:open={pickerOpen}>
+    <div bind:this={pickrEl}></div>
+  </div>
 </div>
 
 <style>
@@ -267,6 +264,10 @@
     border-radius: 2px;
   }
   .pickr-inline {
+    display: none;
     margin-top: 6px;
+  }
+  .pickr-inline.open {
+    display: block;
   }
 </style>
