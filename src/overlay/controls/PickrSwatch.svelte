@@ -16,8 +16,7 @@
   let pickerOpen = false;
   let pickrInstance = null;
   let wrapEl;
-  let portalEl;
-  let pickrTarget;
+  let pickrEl;
   let updatingFromProp = false;
   let commitTimer;
 
@@ -31,7 +30,7 @@
       border: 1px solid rgba(255, 255, 255, 0.12);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
       padding: 8px;
-      width: 260px;
+      width: 100%;
       font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
     }
     .pcr-app[data-theme="nano"] .pcr-selection {
@@ -117,24 +116,28 @@
 
   function togglePicker() {
     pickerOpen = !pickerOpen;
-    if (pickerOpen) {
-      const rect = wrapEl.getBoundingClientRect();
-      portalEl.style.left = (rect.left - 266) + 'px';
-      portalEl.style.top = rect.top + 'px';
-      portalEl.style.display = 'block';
-      if (!pickrInstance) createPickr();
-    } else {
-      portalEl.style.display = 'none';
+    if (pickerOpen && !pickrInstance) {
+      // Wait a tick for the container to render before creating pickr
+      requestAnimationFrame(createPickr);
     }
   }
 
   function createPickr() {
-    if (!pickrTarget || pickrInstance) return;
+    if (!pickrEl || pickrInstance) return;
+
+    // Inject CSS into shadow root once
+    if (!cssInjected) {
+      const root = wrapEl.getRootNode();
+      const style = document.createElement('style');
+      style.textContent = pickrBaseCSS + DARK_OVERRIDES;
+      root.appendChild(style);
+      cssInjected = true;
+    }
 
     pickrInstance = Pickr.create({
-      el: pickrTarget,
+      el: pickrEl,
       theme: 'nano',
-      container: portalEl,
+      container: pickrEl.parentElement,
       inline: true,
       showAlways: true,
       default: color || '#000000',
@@ -153,7 +156,6 @@
       }
     });
 
-    // Inject transparent toggle into interaction area
     if (showTransparent) {
       try {
         const root = pickrInstance.getRoot();
@@ -165,7 +167,6 @@
           e.stopPropagation();
           dispatch('transparent');
           pickerOpen = false;
-          portalEl.style.display = 'none';
         });
         if (interaction.result) {
           interaction.result.insertAdjacentElement('afterend', toggleBtn);
@@ -193,66 +194,36 @@
     });
   }
 
-  // Update pickr color when prop changes
   $: if (pickrInstance && color) {
     updatingFromProp = true;
     try { pickrInstance.setColor(color); } catch (e) {}
     updatingFromProp = false;
   }
 
-  // Update transparent toggle button state
   $: if (pickrInstance && pickrInstance._transparentBtn) {
     const btn = pickrInstance._transparentBtn;
     btn.className = 'pcr-no-color' + (isTransparent ? ' active' : '');
     btn.title = isTransparent ? 'Add color' : 'Set transparent';
   }
 
-  // Sync portal visibility when pickerOpen changes reactively (e.g. from transparent toggle)
-  $: if (portalEl) {
-    portalEl.style.display = pickerOpen ? 'block' : 'none';
-  }
-
   function handleClickOutside(e) {
-    if (pickerOpen && !wrapEl.contains(e.target) && !portalEl.contains(e.target)) {
+    if (pickerOpen && wrapEl && !wrapEl.contains(e.target)) {
       pickerOpen = false;
-      portalEl.style.display = 'none';
     }
   }
 
   onMount(() => {
-    const shadowRoot = wrapEl.getRootNode();
-
-    // Inject pickr CSS into shadow root once
-    if (!cssInjected) {
-      const style = document.createElement('style');
-      style.textContent = pickrBaseCSS + DARK_OVERRIDES;
-      shadowRoot.appendChild(style);
-      cssInjected = true;
-    }
-
-    // Portal: append popup directly to shadow root to escape panel overflow clipping
-    portalEl = document.createElement('div');
-    portalEl.style.cssText = 'position:fixed; z-index:200; width:260px; display:none; pointer-events:auto;';
-    shadowRoot.appendChild(portalEl);
-
-    pickrTarget = document.createElement('div');
-    portalEl.appendChild(pickrTarget);
-
-    shadowRoot.addEventListener('mousedown', handleClickOutside, true);
+    const root = wrapEl?.getRootNode() || document;
+    root.addEventListener('mousedown', handleClickOutside, true);
   });
 
   onDestroy(() => {
     clearTimeout(commitTimer);
-    const shadowRoot = wrapEl?.getRootNode();
-    if (shadowRoot) {
-      shadowRoot.removeEventListener('mousedown', handleClickOutside, true);
-    }
+    const root = wrapEl?.getRootNode() || document;
+    root.removeEventListener('mousedown', handleClickOutside, true);
     if (pickrInstance) {
       try { pickrInstance.destroyAndRemove(); } catch (e) {}
       pickrInstance = null;
-    }
-    if (portalEl && portalEl.parentNode) {
-      portalEl.parentNode.removeChild(portalEl);
     }
   });
 </script>
@@ -261,11 +232,16 @@
   <div class="pickr-swatch" class:transparent={isTransparent} on:click={togglePicker}>
     <div class="swatch-fill" style="background-color: {isTransparent ? 'transparent' : color}"></div>
   </div>
+
+  {#if pickerOpen}
+    <div class="pickr-inline">
+      <div bind:this={pickrEl}></div>
+    </div>
+  {/if}
 </div>
 
 <style>
   .pickr-wrap {
-    position: relative;
     flex-shrink: 0;
   }
   .pickr-swatch {
@@ -289,5 +265,8 @@
     width: 100%;
     height: 100%;
     border-radius: 2px;
+  }
+  .pickr-inline {
+    margin-top: 6px;
   }
 </style>
