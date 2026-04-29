@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { Command } from 'commander';
+import { parseArgs } from 'node:util';
 import { createProxyServer } from './proxy.js';
 import { createWebSocketServer } from './server.js';
 import { createResolver } from './resolver.js';
@@ -40,20 +40,21 @@ function startPolish(httpServer, dir, port) {
   });
 }
 
-const program = new Command();
+const { values } = parseArgs({
+  options: {
+    proxy: { type: 'string' },
+    port:  { type: 'string', default: '3333' },
+    dir:   { type: 'string', default: '.' },
+  },
+  strict: true,
+});
 
-program
-  .name('polish')
-  .description('Visually edit CSS/HTML on your live page')
-  .version('0.1.0')
-  .requiredOption('--proxy <url>', 'Upstream server to proxy (e.g. http://localhost:3000)')
-  .option('--port <number>', 'Port for Polish server', '3333')
-  .option('--dir <path>', 'Source directory to watch for CSS files', '.')
-  .action((options) => {
-    const port = parseInt(options.port, 10);
-    const dir = path.resolve(options.dir);
-    const httpServer = createProxyServer({ targetUrl: options.proxy });
-    startPolish(httpServer, dir, port);
-  });
+if (!values.proxy) {
+  console.error('Error: --proxy is required');
+  process.exit(1);
+}
 
-program.parse();
+const port = parseInt(values.port, 10);
+const dir = path.resolve(values.dir);
+const httpServer = createProxyServer({ targetUrl: values.proxy });
+startPolish(httpServer, dir, port);

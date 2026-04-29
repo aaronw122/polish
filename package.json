@@ -13,7 +13,6 @@
     "prepublishOnly": "vite build"
   },
   "dependencies": {
-    "commander": "^14.0.3",
     "http-proxy": "^1.18.1",
     "ws": "^8.20.0",
     "postcss": "^8.5.10",
