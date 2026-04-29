@@ -175,6 +175,10 @@
       classes,
       ancestors,
       inlineStyles: el.getAttribute('style') || '',
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
       rect: {
         top: Math.round(rect.top),
         left: Math.round(rect.left),

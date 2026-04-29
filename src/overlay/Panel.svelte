@@ -156,13 +156,16 @@
           const parsed = parseNumericValue(val);
           if (parsed.num > 0 || prop !== 'font-size') {
             controlValues[prop] = val;
+            normalControlValues[prop] = val;
           }
         } else {
           // color, select, text — always sync from source
           controlValues[prop] = val;
+          normalControlValues[prop] = val;
         }
       }
       controlValues = controlValues; // trigger reactivity
+      normalControlValues = normalControlValues;
     }
 
     // Layout props (not in CONTROL_SCHEMA, need their own sync loop)
@@ -170,12 +173,14 @@
       for (const prop of LAYOUT_PROPS) {
         if (prop in src.properties) {
           layoutValues[prop] = src.properties[prop];
+          normalLayoutValues[prop] = src.properties[prop];
         }
       }
       if ('display' in src.properties) {
         layoutDisplayValue = src.properties['display'];
       }
       layoutValues = layoutValues; // trigger reactivity
+      normalLayoutValues = normalLayoutValues;
     }
 
     // Shorthand badges
@@ -248,12 +253,19 @@
     const computed = window.getComputedStyle(element);
     for (const prop of previewedProperties) {
       const inlineVal = element.style.getPropertyValue(prop);
-      // Temporarily remove the inline style to read what CSS alone gives us
+      if (!inlineVal) { previewedProperties.delete(prop); continue; }
+
+      // Read computed value WITH inline style applied
+      const withInline = computed.getPropertyValue(prop);
+
+      // Remove inline and re-read — now we see CSS-only value
       element.style.removeProperty(prop);
-      const cssVal = computed.getPropertyValue(prop);
-      // If CSS now matches what we previewed, leave it cleared (CSS is authoritative)
-      // Otherwise re-apply the inline preview so the element doesn't revert
-      if (cssVal !== inlineVal) {
+      const withoutInline = computed.getPropertyValue(prop);
+
+      // Both are computed (rgb format), so string comparison works.
+      // If equal, CSS has caught up — leave inline removed.
+      // If different, CSS hasn't reloaded yet — re-apply preview.
+      if (withInline !== withoutInline) {
         element.style.setProperty(prop, inlineVal);
       } else {
         previewedProperties.delete(prop);

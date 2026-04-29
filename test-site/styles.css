@@ -22,6 +22,7 @@ body {
 .site-header h1 {
   font-size: 20px;
   font-weight: 600;
+  color: #ececef;
 }
 
 nav { display: flex; gap: 16px; }
@@ -42,7 +43,10 @@ nav { display: flex; gap: 16px; }
 /* Hero */
 .hero {
   text-align: center;
-  padding: 64px 32px;
+  padding-top: 18px;
+  padding-right: 32px;
+  padding-bottom:18px;
+  padding-left: 32px;
   background: white;
   border-bottom: 1px solid #e5e5e5;
   font-size: 8px;
@@ -76,8 +80,8 @@ nav { display: flex; gap: 16px; }
 
 .btn-primary {
   background: #2563eb;
-  background-color: #181616;
-  color: white;
+  background-color: #c70000;
+  color: #ffffff;
   width: 121px;
   border-radius: 0px;
   opacity: 1;
@@ -89,6 +93,9 @@ nav { display: flex; gap: 16px; }
   margin: 0 auto;
   padding: 32px;
   width: 980px;
+  gap: 0rem;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Card grid */
@@ -110,7 +117,7 @@ nav { display: flex; gap: 16px; }
 .card h3 {
   font-size: 18px;
   margin-bottom: 8px;
-  color: #27274f;
+  color: #1818c9;
   font-family: Monaco;
   border-color: #0000f0;
   background-color: transparent;
@@ -119,7 +126,7 @@ nav { display: flex; gap: 16px; }
 .card p {
   font-size: 14px;
   color: #000000;
-  font-family: Courier New;
+  font-family: Times New Roman;
   border-color: #1a1919;
   background-color: transparent;
 }
@@ -335,7 +342,8 @@ nav { display: flex; gap: 16px; }
     grid-template-columns: 1fr;
     padding-right: 0px;
     margin-left:0px;
-    margin-top: 32px;
+    margin-top:0px;
+    padding-top: 0px;
   }
   .features {
     flex-direction: column;

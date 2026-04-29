@@ -19,6 +19,7 @@ function handleSelectMessage(ws, message, resolver) {
     classes: message.classes,
     inlineStyles: message.inlineStyles || '',
     ancestors: message.ancestors || [],
+    viewport: message.viewport || null,
   });
 
   ws.send(

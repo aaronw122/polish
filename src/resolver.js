@@ -88,6 +88,34 @@ function findEnclosingMediaQuery(node) {
   return null;
 }
 
+// ── Media Query Evaluation ─────────────────────────────────────────
+
+/**
+ * Evaluate a media query params string against a viewport.
+ * Handles width/height conditions: min-width, max-width, min-height, max-height.
+ * Returns true if the query matches, false if it doesn't,
+ * or true for unrecognized queries (conservative — don't deprioritize unknowns).
+ */
+function evaluateMediaQuery(params, viewport) {
+  if (!params || !viewport) return true;
+
+  const conditions = params.split(/\s+and\s+/i);
+
+  for (const cond of conditions) {
+    const match = cond.match(/\(\s*(min|max)-(width|height)\s*:\s*([\d.]+)\s*px\s*\)/i);
+    if (!match) continue; // skip conditions we can't evaluate
+
+    const [, minMax, dimension, valueStr] = match;
+    const threshold = parseFloat(valueStr);
+    const actual = dimension === 'width' ? viewport.width : viewport.height;
+
+    if (minMax === 'max' && actual > threshold) return false;
+    if (minMax === 'min' && actual < threshold) return false;
+  }
+
+  return true;
+}
+
 // ── HTML Parsing ────────────────────────────────────────────────────
 
 /**
@@ -590,7 +618,7 @@ export class Resolver {
    * @returns {{ file, line, selector, properties, matchedRules, cssFiles }}
    */
   resolve(elementInfo) {
-    const { tag, id, classes, inlineStyles: inlineStyleStr, ancestors } = elementInfo;
+    const { tag, id, classes, inlineStyles: inlineStyleStr, ancestors, viewport } = elementInfo;
     const element = {
       tag: tag?.toLowerCase(),
       id: id || '',
@@ -610,8 +638,12 @@ export class Resolver {
       }
     }
 
-    // 3. Resolve base (normal) state
-    const matchedRules = baseRules;
+    // 3. Resolve base (normal) state — only include rules whose media query
+    //    matches the current viewport (or rules with no media query).
+    const activeRules = viewport
+      ? baseRules.filter(r => evaluateMediaQuery(r.mediaQuery, viewport))
+      : baseRules;
+    const matchedRules = activeRules;
     sortByCascade(matchedRules);
     const { properties, propertyWinner } = computeWinningProperties(matchedRules);
 
@@ -624,7 +656,7 @@ export class Resolver {
     // 5. Annotate each rule's properties with override/important status
     annotateMatchedRules(matchedRules, propertyWinner);
 
-    // 6. Shape the response: primary match is the highest-specificity base rule
+    // 6. Shape the response: primary match is the highest-specificity active rule
     const primary = matchedRules[matchedRules.length - 1] || null;
 
     // 7. Determine styleType based on the primary match
