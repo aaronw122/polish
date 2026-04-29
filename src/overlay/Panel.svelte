@@ -39,7 +39,6 @@
   let layoutValues = {};
   let normalLayoutValues = {};
   let layoutDisplayValue = 'block';
-  let collapseComputed = false;
   let shorthandProps = new Set();
   let pseudoClasses = new Set();
   let primaryMediaQuery = null;
@@ -61,7 +60,7 @@
   $: if (element && element !== initializedElement) {
     initializedElement = element;
     activeState = 'normal';
-    collapseComputed = false;
+    collapsedSections = {};
     initFromElement(element);
     positionNearElement(element);
     positionedElement = element;
@@ -179,11 +178,19 @@
 
   // ── Update panel from authored source data ──────────────────────
   function updateFromSource(src) {
-    // Auto-collapse: sections without authored CSS values start collapsed
-    if (!collapseComputed) {
-      collapsedSections = computeCollapsedSections(src.properties, ALL_SECTION_IDS);
-      collapseComputed = true;
+    // Auto-collapse sections without authored CSS — but never re-collapse
+    // a section the user has already opened
+    const autoCollapsed = computeCollapsedSections(src.properties, ALL_SECTION_IDS);
+    for (const id of ALL_SECTION_IDS) {
+      if (autoCollapsed[id]) {
+        // Only collapse if not currently expanded (don't override user toggle)
+        if (collapsedSections[id] === undefined) collapsedSections[id] = true;
+      } else {
+        // Section has authored values — expand it
+        collapsedSections[id] = false;
+      }
     }
+    collapsedSections = collapsedSections;
     if (src.properties) {
       for (const [prop, val] of Object.entries(src.properties)) {
         const def = findControlDef(prop);
