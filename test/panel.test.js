@@ -19,6 +19,8 @@ import {
   WEB_SAFE_FONTS,
   FONT_WEIGHTS,
   SPACING_PROPS,
+  SIZE_CONTROLS,
+  isTextElement,
 } from '../src/overlay/lib/schema.js';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -352,7 +354,7 @@ describe('spacing value formatting', () => {
 describe('CONTROL_SCHEMA', () => {
   it('has the expected sections', () => {
     const sectionIds = CONTROL_SCHEMA.map(s => s.id);
-    assert.deepEqual(sectionIds, ['colors', 'typography', 'size', 'effects']);
+    assert.deepEqual(sectionIds, ['colors', 'text', 'effects']);
   });
 
   it('every control has required fields', () => {
@@ -400,6 +402,69 @@ describe('SPACING_PROPS', () => {
     assert.equal(SPACING_PROPS.length, 8);
     assert.ok(SPACING_PROPS.includes('margin-top'));
     assert.ok(SPACING_PROPS.includes('padding-bottom'));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SIZE_CONTROLS
+// ═══════════════════════════════════════════════════════════════════
+
+describe('SIZE_CONTROLS', () => {
+  it('has width and height controls', () => {
+    const props = SIZE_CONTROLS.map(c => c.property);
+    assert.deepEqual(props, ['width', 'height']);
+  });
+
+  it('controls have slider type with required fields', () => {
+    for (const control of SIZE_CONTROLS) {
+      assert.equal(control.type, 'slider');
+      assert.ok(typeof control.min === 'number');
+      assert.ok(typeof control.max === 'number');
+      assert.ok(typeof control.step === 'number');
+      assert.ok(control.label);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// isTextElement
+// ═══════════════════════════════════════════════════════════════════
+
+describe('isTextElement', () => {
+  it('returns true for text elements', () => {
+    assert.ok(isTextElement('p'));
+    assert.ok(isTextElement('h1'));
+    assert.ok(isTextElement('span'));
+    assert.ok(isTextElement('a'));
+    assert.ok(isTextElement('button'));
+    assert.ok(isTextElement('label'));
+    assert.ok(isTextElement('li'));
+    assert.ok(isTextElement('blockquote'));
+    assert.ok(isTextElement('code'));
+    assert.ok(isTextElement('pre'));
+    assert.ok(isTextElement('td'));
+    assert.ok(isTextElement('summary'));
+  });
+
+  it('returns false for container elements', () => {
+    assert.ok(!isTextElement('div'));
+    assert.ok(!isTextElement('section'));
+    assert.ok(!isTextElement('main'));
+    assert.ok(!isTextElement('header'));
+    assert.ok(!isTextElement('footer'));
+    assert.ok(!isTextElement('nav'));
+    assert.ok(!isTextElement('article'));
+    assert.ok(!isTextElement('aside'));
+    assert.ok(!isTextElement('ul'));
+    assert.ok(!isTextElement('ol'));
+    assert.ok(!isTextElement('form'));
+  });
+
+  it('is case-insensitive', () => {
+    assert.ok(isTextElement('P'));
+    assert.ok(isTextElement('H1'));
+    assert.ok(isTextElement('SPAN'));
+    assert.ok(isTextElement('DIV') === false);
   });
 });
 

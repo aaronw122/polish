@@ -27,19 +27,13 @@ export const CONTROL_SCHEMA = [
     { property: 'background-color', type: 'color', label: 'Background' },
     { property: 'color',            type: 'color', label: 'Text' },
   ]},
-  { section: 'Typography', id: 'typography', controls: [
+  { section: 'Text', id: 'text', controls: [
     { property: 'font-family', type: 'select', label: 'Family',
       options: WEB_SAFE_FONTS.map(f => ({ value: f, label: f })) },
     { property: 'font-size', type: 'slider', label: 'Size',
       min: 8, max: 72, step: 1, units: ['px', 'rem', 'em'] },
     { property: 'font-weight', type: 'select', label: 'Weight',
       options: FONT_WEIGHTS },
-  ]},
-  { section: 'Size', id: 'size', controls: [
-    { property: 'width',  type: 'slider', label: 'Width',
-      min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vw'] },
-    { property: 'height', type: 'slider', label: 'Height',
-      min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vh'] },
   ]},
   // Spacing is built separately (box model visualization)
   { section: 'Effects', id: 'effects', controls: [
@@ -72,4 +66,30 @@ export const BORDER_PROPS = [
  */
 export const LAYOUT_PROPS = [
   'flex-direction', 'align-items', 'justify-content', 'gap',
+  'width', 'height',
 ];
+
+/**
+ * Size controls displayed inside the Layout section (slider-driven).
+ */
+export const SIZE_CONTROLS = [
+  { property: 'width',  type: 'slider', label: 'Width',
+    min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vw'] },
+  { property: 'height', type: 'slider', label: 'Height',
+    min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vh'] },
+];
+
+/**
+ * Element classification — text elements get Text section prioritized.
+ */
+const TEXT_ELEMENTS = new Set([
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a',
+  'label', 'li', 'blockquote', 'em', 'strong', 'small',
+  'code', 'pre', 'q', 'cite', 'figcaption', 'dt', 'dd',
+  'th', 'td', 'caption', 'abbr', 'time', 'mark', 'b', 'i', 'u', 's',
+  'sub', 'sup', 'button', 'legend', 'summary',
+]);
+
+export function isTextElement(tagName) {
+  return TEXT_ELEMENTS.has(tagName.toLowerCase());
+}

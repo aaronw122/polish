@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS } from './lib/schema.js';
+  import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS, SIZE_CONTROLS, isTextElement } from './lib/schema.js';
   import {
     rgbToHex, parseNumericValue, clampValue, cssToCamel,
     computePanelPosition, DEBOUNCE_MS,
@@ -136,6 +136,11 @@
         }
       }
     }
+    // Size controls (width/height) — now in Layout section but use controlValues
+    for (const def of SIZE_CONTROLS) {
+      vals[def.property] = computed.getPropertyValue(def.property);
+    }
+
     controlValues = vals;
     normalControlValues = { ...vals };
 
@@ -246,6 +251,10 @@
       for (const c of s.controls) {
         if (c.property === property) return c;
       }
+    }
+    // Also check SIZE_CONTROLS (width/height in Layout section)
+    for (const c of SIZE_CONTROLS) {
+      if (c.property === property) return c;
     }
     return null;
   }
@@ -539,23 +548,33 @@
     return def.options;
   }
 
-  // Build panel sections: schema-driven controls plus custom sections (Spacing, Layout)
-  function getPanelSections() {
-    const result = [];
+  // Build panel sections: schema-driven controls plus custom sections,
+  // ordered by element type (text vs container).
+  function getPanelSections(el) {
+    // Collect all sections into a lookup by id
+    const sectionMap = {};
     for (const s of CONTROL_SCHEMA) {
-      result.push(s);
-      if (s.id === 'colors') {
-        result.push({ section: 'Border', id: 'border', controls: null });
-      }
-      if (s.id === 'size') {
-        result.push({ section: 'Spacing', id: 'spacing', controls: null });
-        result.push({ section: 'Layout', id: 'layout', controls: null });
-      }
+      sectionMap[s.id] = s;
     }
-    return result;
+    // Custom sections (not in CONTROL_SCHEMA)
+    sectionMap['layout'] = { section: 'Layout', id: 'layout', controls: null };
+    sectionMap['spacing'] = { section: 'Position', id: 'spacing', controls: null };
+    sectionMap['border'] = { section: 'Border', id: 'border', controls: null };
+
+    // Determine ordering based on element type
+    const tagName = el ? el.tagName : 'DIV';
+    const isText = isTextElement(tagName);
+
+    // Text element order:   Text, Layout, Position, Border, Colors, Effects
+    // Container order:      Layout, Position, Border, Colors, Text, Effects
+    const order = isText
+      ? ['text', 'layout', 'spacing', 'border', 'colors', 'effects']
+      : ['layout', 'spacing', 'border', 'colors', 'text', 'effects'];
+
+    return order.map(id => sectionMap[id]).filter(Boolean);
   }
 
-  $: sections = getPanelSections();
+  $: sections = getPanelSections(element);
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -650,6 +669,19 @@
               {/if}
             </div>
           {:else if sectionDef.id === 'layout'}
+            {#each SIZE_CONTROLS as def}
+              <SliderControl
+                property={def.property}
+                value={controlValues[def.property] || ''}
+                label={def.label}
+                min={def.min}
+                max={def.max}
+                step={def.step}
+                units={def.units}
+                on:input={onControlInput}
+                on:change={onControlChange}
+              />
+            {/each}
             <LayoutControl
               values={layoutValues}
               on:input={onLayoutInput}
