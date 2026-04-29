@@ -599,3 +599,304 @@ describe('computeCollapsedSections', () => {
     assert.equal(result.layout, undefined, 'layout not requested');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// getPanelSections logic (replicated from Panel.svelte for testing)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Replicate the pure logic of getPanelSections from Panel.svelte.
+ * This mirrors the exact implementation so we can test section ordering
+ * without needing a Svelte runtime.
+ */
+function getPanelSections(tagName) {
+  const sectionMap = {};
+  for (const s of CONTROL_SCHEMA) {
+    sectionMap[s.id] = s;
+  }
+  sectionMap['layout'] = { section: 'Layout', id: 'layout', controls: null };
+  sectionMap['spacing'] = { section: 'Position', id: 'spacing', controls: null };
+  sectionMap['border'] = { section: 'Border', id: 'border', controls: null };
+
+  const isText = isTextElement(tagName);
+
+  const order = isText
+    ? ['text', 'layout', 'spacing', 'border', 'colors', 'effects']
+    : ['layout', 'spacing', 'border', 'colors', 'text', 'effects'];
+
+  return order.map(id => sectionMap[id]).filter(Boolean);
+}
+
+describe('getPanelSections — section ordering by element type', () => {
+  it('returns Text first for text elements (h1)', () => {
+    const sections = getPanelSections('h1');
+    assert.equal(sections[0].id, 'text');
+  });
+
+  it('returns Layout first for container elements (div)', () => {
+    const sections = getPanelSections('div');
+    assert.equal(sections[0].id, 'layout');
+  });
+
+  it('returns correct order for text elements', () => {
+    const ids = getPanelSections('p').map(s => s.id);
+    assert.deepEqual(ids, ['text', 'layout', 'spacing', 'border', 'colors', 'effects']);
+  });
+
+  it('returns correct order for container elements', () => {
+    const ids = getPanelSections('section').map(s => s.id);
+    assert.deepEqual(ids, ['layout', 'spacing', 'border', 'colors', 'text', 'effects']);
+  });
+
+  it('always returns exactly 6 sections', () => {
+    assert.equal(getPanelSections('span').length, 6);
+    assert.equal(getPanelSections('div').length, 6);
+    assert.equal(getPanelSections('nav').length, 6);
+    assert.equal(getPanelSections('h3').length, 6);
+  });
+
+  it('Effects section is always last', () => {
+    const textSections = getPanelSections('a');
+    const containerSections = getPanelSections('main');
+    assert.equal(textSections[5].id, 'effects');
+    assert.equal(containerSections[5].id, 'effects');
+  });
+
+  it('handles various text element tags', () => {
+    const textTags = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'a', 'button', 'label', 'li', 'blockquote', 'code', 'pre', 'td', 'summary'];
+    for (const tag of textTags) {
+      const ids = getPanelSections(tag).map(s => s.id);
+      assert.equal(ids[0], 'text', `${tag} should have Text first`);
+      assert.equal(ids[1], 'layout', `${tag} should have Layout second`);
+    }
+  });
+
+  it('handles various container element tags', () => {
+    const containerTags = ['div', 'section', 'main', 'header', 'footer', 'nav', 'article', 'aside', 'ul', 'ol', 'form'];
+    for (const tag of containerTags) {
+      const ids = getPanelSections(tag).map(s => s.id);
+      assert.equal(ids[0], 'layout', `${tag} should have Layout first`);
+      assert.equal(ids[4], 'text', `${tag} should have Text fifth`);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Section names — verify renamed sections
+// ═══════════════════════════════════════════════════════════════════
+
+describe('section names — renamed sections', () => {
+  it('uses "Text" not "Typography" as section name', () => {
+    const textSection = CONTROL_SCHEMA.find(s => s.id === 'text');
+    assert.ok(textSection, 'text section exists in CONTROL_SCHEMA');
+    assert.equal(textSection.section, 'Text');
+  });
+
+  it('uses "Position" not "Spacing" as the spacing section label', () => {
+    const sections = getPanelSections('div');
+    const spacingSection = sections.find(s => s.id === 'spacing');
+    assert.ok(spacingSection, 'spacing section exists');
+    assert.equal(spacingSection.section, 'Position');
+  });
+
+  it('uses "Layout" as the layout section label', () => {
+    const sections = getPanelSections('div');
+    const layoutSection = sections.find(s => s.id === 'layout');
+    assert.ok(layoutSection, 'layout section exists');
+    assert.equal(layoutSection.section, 'Layout');
+  });
+
+  it('no section is named "Typography"', () => {
+    const allSections = getPanelSections('div');
+    for (const s of allSections) {
+      assert.notEqual(s.section, 'Typography', `Found section named "Typography" (id: ${s.id})`);
+    }
+  });
+
+  it('no section is named "Size"', () => {
+    const allSections = getPanelSections('div');
+    for (const s of allSections) {
+      assert.notEqual(s.section, 'Size', `Found section named "Size" (id: ${s.id})`);
+    }
+  });
+
+  it('CONTROL_SCHEMA has no "Typography" or "Size" section names', () => {
+    for (const s of CONTROL_SCHEMA) {
+      assert.notEqual(s.section, 'Typography');
+      assert.notEqual(s.section, 'Size');
+    }
+  });
+
+  it('section labels for all six sections are correct', () => {
+    const sections = getPanelSections('h1');
+    const labels = sections.map(s => s.section);
+    assert.deepEqual(labels, ['Text', 'Layout', 'Position', 'Border', 'Colors', 'Effects']);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Size controls in Layout section
+// ═══════════════════════════════════════════════════════════════════
+
+describe('size controls in Layout section', () => {
+  it('LAYOUT_PROPS includes width and height', () => {
+    assert.ok(LAYOUT_PROPS.includes('width'), 'LAYOUT_PROPS should include width');
+    assert.ok(LAYOUT_PROPS.includes('height'), 'LAYOUT_PROPS should include height');
+  });
+
+  it('LAYOUT_PROPS includes flexbox properties alongside size', () => {
+    assert.ok(LAYOUT_PROPS.includes('flex-direction'));
+    assert.ok(LAYOUT_PROPS.includes('align-items'));
+    assert.ok(LAYOUT_PROPS.includes('justify-content'));
+    assert.ok(LAYOUT_PROPS.includes('gap'));
+    assert.ok(LAYOUT_PROPS.includes('width'));
+    assert.ok(LAYOUT_PROPS.includes('height'));
+    assert.equal(LAYOUT_PROPS.length, 6);
+  });
+
+  it('SIZE_CONTROLS properties are a subset of LAYOUT_PROPS', () => {
+    for (const ctrl of SIZE_CONTROLS) {
+      assert.ok(
+        LAYOUT_PROPS.includes(ctrl.property),
+        `SIZE_CONTROLS property "${ctrl.property}" should be in LAYOUT_PROPS`
+      );
+    }
+  });
+
+  it('SECTION_PROPS_MAP.layout includes width and height', () => {
+    assert.ok(SECTION_PROPS_MAP.layout.includes('width'));
+    assert.ok(SECTION_PROPS_MAP.layout.includes('height'));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Integration: section ordering + auto-collapse
+// ═══════════════════════════════════════════════════════════════════
+
+describe('integration: section ordering + auto-collapse', () => {
+  const ALL_SECTION_IDS = ['text', 'layout', 'spacing', 'border', 'colors', 'effects'];
+
+  it('text element with font-size authored: Text expanded and first', () => {
+    const sections = getPanelSections('h1');
+    const collapsed = computeCollapsedSections({ 'font-size': '16px' }, ALL_SECTION_IDS);
+
+    assert.equal(sections[0].id, 'text', 'Text section is first for h1');
+    assert.equal(collapsed.text, false, 'Text section is expanded');
+    assert.equal(collapsed.layout, true, 'Layout section is collapsed');
+    assert.equal(collapsed.colors, true, 'Colors section is collapsed');
+  });
+
+  it('container element with width authored: Layout expanded and first', () => {
+    const sections = getPanelSections('div');
+    const collapsed = computeCollapsedSections({ 'width': '300px' }, ALL_SECTION_IDS);
+
+    assert.equal(sections[0].id, 'layout', 'Layout section is first for div');
+    assert.equal(collapsed.layout, false, 'Layout section is expanded');
+    assert.equal(collapsed.text, true, 'Text section is collapsed');
+  });
+
+  it('text element with no text properties: Text collapsed but still first', () => {
+    const sections = getPanelSections('p');
+    const collapsed = computeCollapsedSections({ 'background-color': '#fff' }, ALL_SECTION_IDS);
+
+    assert.equal(sections[0].id, 'text', 'Text section is first for p');
+    assert.equal(collapsed.text, true, 'Text section is collapsed (no text props)');
+    assert.equal(collapsed.colors, false, 'Colors section expanded (background-color)');
+  });
+
+  it('empty properties: all sections collapsed regardless of order', () => {
+    const collapsed = computeCollapsedSections({}, ALL_SECTION_IDS);
+    for (const id of ALL_SECTION_IDS) {
+      assert.equal(collapsed[id], true, `${id} should be collapsed when no properties authored`);
+    }
+  });
+
+  it('switching from text element to container recomputes collapse and order', () => {
+    // Simulate selecting an h1 with font-size
+    const textSections = getPanelSections('h1');
+    const textCollapsed = computeCollapsedSections({ 'font-size': '24px' }, ALL_SECTION_IDS);
+    assert.equal(textSections[0].id, 'text');
+    assert.equal(textCollapsed.text, false);
+
+    // Simulate switching to a div with padding
+    const containerSections = getPanelSections('div');
+    const containerCollapsed = computeCollapsedSections({ 'padding-top': '10px' }, ALL_SECTION_IDS);
+    assert.equal(containerSections[0].id, 'layout');
+    assert.equal(containerCollapsed.text, true, 'Text collapsed after switching to div');
+    assert.equal(containerCollapsed.spacing, false, 'Spacing expanded for padding');
+  });
+
+  it('switching from container to text element recomputes both order and collapse', () => {
+    // Start with div, width authored
+    const divSections = getPanelSections('div');
+    const divCollapsed = computeCollapsedSections({ 'width': '100%' }, ALL_SECTION_IDS);
+    assert.equal(divSections[0].id, 'layout');
+    assert.equal(divCollapsed.layout, false);
+
+    // Switch to span, font-family authored
+    const spanSections = getPanelSections('span');
+    const spanCollapsed = computeCollapsedSections({ 'font-family': 'Arial' }, ALL_SECTION_IDS);
+    assert.equal(spanSections[0].id, 'text');
+    assert.equal(spanCollapsed.text, false, 'Text expanded for font-family');
+    assert.equal(spanCollapsed.layout, true, 'Layout collapsed (no layout props)');
+  });
+
+  it('multiple authored properties expand multiple sections', () => {
+    const sections = getPanelSections('button');
+    const collapsed = computeCollapsedSections({
+      'font-size': '14px',
+      'background-color': '#333',
+      'border-top-width': '1px',
+      'opacity': '0.8',
+    }, ALL_SECTION_IDS);
+
+    // button is a text element
+    assert.equal(sections[0].id, 'text');
+    assert.equal(collapsed.text, false, 'Text expanded');
+    assert.equal(collapsed.colors, false, 'Colors expanded');
+    assert.equal(collapsed.border, false, 'Border expanded');
+    assert.equal(collapsed.effects, false, 'Effects expanded');
+    assert.equal(collapsed.layout, true, 'Layout collapsed (no layout props)');
+    assert.equal(collapsed.spacing, true, 'Spacing collapsed (no spacing props)');
+  });
+
+  it('height authored expands Layout section for containers', () => {
+    const collapsed = computeCollapsedSections({ 'height': '500px' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.layout, false, 'Layout expanded via height');
+  });
+
+  it('gap authored expands Layout section', () => {
+    const collapsed = computeCollapsedSections({ 'gap': '16px' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.layout, false, 'Layout expanded via gap');
+  });
+
+  it('flex-direction authored expands Layout section', () => {
+    const collapsed = computeCollapsedSections({ 'flex-direction': 'column' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.layout, false, 'Layout expanded via flex-direction');
+  });
+
+  it('margin authored expands spacing/Position section', () => {
+    const collapsed = computeCollapsedSections({ 'margin-left': '20px' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.spacing, false, 'Spacing expanded via margin-left');
+  });
+
+  it('border color authored expands border section', () => {
+    const collapsed = computeCollapsedSections({ 'border-top-color': '#000' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.border, false, 'Border expanded via border-top-color');
+  });
+
+  it('border style authored expands border section', () => {
+    const collapsed = computeCollapsedSections({ 'border-bottom-style': 'solid' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.border, false, 'Border expanded via border-bottom-style');
+  });
+
+  it('font-weight authored expands text section', () => {
+    const collapsed = computeCollapsedSections({ 'font-weight': '700' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.text, false, 'Text expanded via font-weight');
+  });
+
+  it('color (text color) authored expands colors section', () => {
+    const collapsed = computeCollapsedSections({ 'color': '#333' }, ALL_SECTION_IDS);
+    assert.equal(collapsed.colors, false, 'Colors expanded via color');
+  });
+});
