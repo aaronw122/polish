@@ -128,10 +128,17 @@
     cssInjected = true;
   }
 
+  let popupStyle = '';
+
   function togglePicker() {
     pickerOpen = !pickerOpen;
-    if (pickerOpen && !pickrInstance) {
-      tick().then(createPickr);
+    if (pickerOpen) {
+      // Position fixed relative to viewport, to the left of the swatch
+      const rect = wrapEl.getBoundingClientRect();
+      popupStyle = `left: ${rect.left - 266}px; top: ${rect.top}px;`;
+      if (!pickrInstance) {
+        tick().then(createPickr);
+      }
     }
   }
 
@@ -245,7 +252,7 @@
     <div class="swatch-fill" style="background-color: {isTransparent ? 'transparent' : color}"></div>
   </div>
 
-  <div class="pickr-popup" class:open={pickerOpen}>
+  <div class="pickr-popup" class:open={pickerOpen} style={popupStyle}>
     <div bind:this={pickrEl}></div>
   </div>
 </div>
@@ -279,9 +286,7 @@
   }
   .pickr-popup {
     display: none;
-    position: absolute;
-    right: calc(100% + 6px);
-    top: 0;
+    position: fixed;
     z-index: 200;
     width: 260px;
   }
