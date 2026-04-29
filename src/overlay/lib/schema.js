@@ -26,7 +26,6 @@ export const CONTROL_SCHEMA = [
   { section: 'Colors', id: 'colors', controls: [
     { property: 'background-color', type: 'color', label: 'Background' },
     { property: 'color',            type: 'color', label: 'Text' },
-    { property: 'border-color',     type: 'color', label: 'Border' },
   ]},
   { section: 'Typography', id: 'typography', controls: [
     { property: 'font-family', type: 'select', label: 'Family',
@@ -57,6 +56,15 @@ export const CONTROL_SCHEMA = [
 export const SPACING_PROPS = [
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+];
+
+/**
+ * Border properties for per-side border controls (not schema-driven).
+ */
+export const BORDER_PROPS = [
+  'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+  'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style',
+  'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
 ];
 
 /**

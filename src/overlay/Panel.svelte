@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { CONTROL_SCHEMA, SPACING_PROPS, LAYOUT_PROPS } from './lib/schema.js';
+  import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS } from './lib/schema.js';
   import {
     rgbToHex, parseNumericValue, clampValue, cssToCamel,
     computePanelPosition, DEBOUNCE_MS,
@@ -11,6 +11,7 @@
   import SliderControl from './controls/SliderControl.svelte';
   import SelectControl from './controls/SelectControl.svelte';
   import BoxModel from './controls/BoxModel.svelte';
+  import BorderControl from './controls/BorderControl.svelte';
   import LayoutControl from './controls/LayoutControl.svelte';
 
   export let element = null;
@@ -33,6 +34,8 @@
   let spacingValues = {};
   let normalControlValues = {};
   let normalSpacingValues = {};
+  let borderValues = {};
+  let normalBorderValues = {};
   let layoutValues = {};
   let normalLayoutValues = {};
   let layoutDisplayValue = 'block';
@@ -72,6 +75,7 @@
     if (activeState === 'normal') {
       controlValues = { ...normalControlValues };
       spacingValues = { ...normalSpacingValues };
+      borderValues = { ...normalBorderValues };
       layoutValues = { ...normalLayoutValues };
     } else {
       const src = $sourceData;
@@ -79,6 +83,15 @@
       if (pseudoState && pseudoState.properties) {
         // Start from normal values, overlay the pseudo-state's properties
         controlValues = { ...normalControlValues, ...pseudoState.properties };
+
+        // Overlay border props from pseudo-state
+        const pseudoBorder = {};
+        BORDER_PROPS.forEach(prop => {
+          if (prop in pseudoState.properties) {
+            pseudoBorder[prop] = pseudoState.properties[prop];
+          }
+        });
+        borderValues = { ...normalBorderValues, ...pseudoBorder };
 
         // Overlay layout props from pseudo-state
         const pseudoLayout = {};
@@ -135,6 +148,14 @@
     spacingValues = sv;
     normalSpacingValues = { ...sv };
 
+    // Border
+    const bv = {};
+    BORDER_PROPS.forEach(prop => {
+      bv[prop] = computed.getPropertyValue(prop);
+    });
+    borderValues = bv;
+    normalBorderValues = { ...bv };
+
     // Layout
     const lv = {};
     LAYOUT_PROPS.forEach(prop => {
@@ -166,6 +187,18 @@
       }
       controlValues = controlValues; // trigger reactivity
       normalControlValues = normalControlValues;
+    }
+
+    // Border props
+    if (src.properties) {
+      for (const prop of BORDER_PROPS) {
+        if (prop in src.properties) {
+          borderValues[prop] = src.properties[prop];
+          normalBorderValues[prop] = src.properties[prop];
+        }
+      }
+      borderValues = borderValues;
+      normalBorderValues = normalBorderValues;
     }
 
     // Layout props (not in CONTROL_SCHEMA, need their own sync loop)
@@ -361,13 +394,6 @@
 
     applyLivePreview(property, value);
     debounceSendChange(property, value);
-
-    // Preview border visibility when picking border-color
-    if (property === 'border-color' && value !== 'transparent' && element) {
-      const computed = window.getComputedStyle(element);
-      if (computed.borderTopStyle === 'none') applyLivePreview('border-style', 'solid');
-      if (parseFloat(computed.borderTopWidth) === 0) applyLivePreview('border-width', '1px');
-    }
   }
 
   function onControlChange(e) {
@@ -376,21 +402,6 @@
 
     applyLivePreview(property, value);
     sendChangeImmediate(property, value);
-
-    // Auto-set border-style/width when adding a border color to an element with no border
-    if (property === 'border-color' && value !== 'transparent' && element) {
-      const computed = window.getComputedStyle(element);
-      const needsStyle = computed.borderTopStyle === 'none';
-      const needsWidth = parseFloat(computed.borderTopWidth) === 0;
-      if (needsStyle) {
-        applyLivePreview('border-style', 'solid');
-        sendChangeImmediate('border-style', 'solid');
-      }
-      if (needsWidth) {
-        applyLivePreview('border-width', '1px');
-        sendChangeImmediate('border-width', '1px');
-      }
-    }
   }
 
   function onSpacingInput(e) {
@@ -403,6 +414,22 @@
 
   function onSpacingChange(e) {
     const { property, value } = e.detail;
+
+    applyLivePreview(property, value);
+    sendChangeImmediate(property, value);
+  }
+
+  function onBorderInput(e) {
+    const { property, value } = e.detail;
+    borderValues[property] = value;
+
+    applyLivePreview(property, value);
+    debounceSendChange(property, value);
+  }
+
+  function onBorderChange(e) {
+    const { property, value } = e.detail;
+    borderValues[property] = value;
 
     applyLivePreview(property, value);
     sendChangeImmediate(property, value);
@@ -517,6 +544,9 @@
     const result = [];
     for (const s of CONTROL_SCHEMA) {
       result.push(s);
+      if (s.id === 'colors') {
+        result.push({ section: 'Border', id: 'border', controls: null });
+      }
       if (s.id === 'size') {
         result.push({ section: 'Spacing', id: 'spacing', controls: null });
         result.push({ section: 'Layout', id: 'layout', controls: null });
@@ -585,7 +615,13 @@
           <span class="polish-section-arrow">&#9654;</span> {sectionDef.section}
         </div>
         <div class="polish-section-content">
-          {#if sectionDef.id === 'spacing'}
+          {#if sectionDef.id === 'border'}
+            <BorderControl
+              values={borderValues}
+              on:input={onBorderInput}
+              on:change={onBorderChange}
+            />
+          {:else if sectionDef.id === 'spacing'}
             <!-- Spacing section: box model + lock + shorthand badges -->
             <div class="polish-spacing-container">
               <BoxModel

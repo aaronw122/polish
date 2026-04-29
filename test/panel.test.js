@@ -71,15 +71,15 @@ describe('rgbToHex', () => {
     assert.equal(rgbToHex('rgba(0, 128, 255, 1)'), '#0080ff');
   });
 
-  it('returns #000000 for transparent', () => {
-    assert.equal(rgbToHex('transparent'), '#000000');
-    assert.equal(rgbToHex('rgba(0, 0, 0, 0)'), '#000000');
+  it('returns transparent for transparent values', () => {
+    assert.equal(rgbToHex('transparent'), 'transparent');
+    assert.equal(rgbToHex('rgba(0, 0, 0, 0)'), 'transparent');
   });
 
-  it('returns #000000 for null/undefined/empty', () => {
-    assert.equal(rgbToHex(null), '#000000');
-    assert.equal(rgbToHex(undefined), '#000000');
-    assert.equal(rgbToHex(''), '#000000');
+  it('returns transparent for null/undefined/empty', () => {
+    assert.equal(rgbToHex(null), 'transparent');
+    assert.equal(rgbToHex(undefined), 'transparent');
+    assert.equal(rgbToHex(''), 'transparent');
   });
 
   it('passes through hex values', () => {
