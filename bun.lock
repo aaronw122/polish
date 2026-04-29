@@ -4,12 +4,13 @@
     "": {
       "name": "polish",
       "dependencies": {
-        "chokidar": "latest",
-        "commander": "latest",
-        "htmlparser2": "latest",
-        "http-proxy": "latest",
-        "postcss": "latest",
-        "ws": "latest",
+        "chokidar": "^5.0.0",
+        "commander": "^14.0.3",
+        "culori": "^4.0.2",
+        "htmlparser2": "^12.0.0",
+        "http-proxy": "^1.18.1",
+        "postcss": "^8.5.10",
+        "ws": "^8.20.0",
       },
       "devDependencies": {
         "@sveltejs/vite-plugin-svelte": "^3.1.2",
@@ -150,6 +151,8 @@
     "commander": ["commander@14.0.3", "", {}, "sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw=="],
 
     "css-tree": ["css-tree@2.3.1", "", { "dependencies": { "mdn-data": "2.0.30", "source-map-js": "^1.0.1" } }, "sha512-6Fv1DV/TYw//QF5IzQdqsNDjx/wc8TrMBZsqjL9eW01tWb7R7k/mq+/VXfJCl7SoD5emsJop9cOByJZfs8hYIw=="],
+
+    "culori": ["culori@4.0.2", "", {}, "sha512-1+BhOB8ahCn4O0cep0Sh2l9KCOfOdY+BXJnKMHFFzDEouSr/el18QwXEMRlOj9UY5nCeA8UN3a/82rUWRBeyBw=="],
 
     "debug": ["debug@4.4.3", "", { "dependencies": { "ms": "^2.1.3" } }, "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="],
 
