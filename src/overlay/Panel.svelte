@@ -39,6 +39,7 @@
   let layoutValues = {};
   let normalLayoutValues = {};
   let layoutDisplayValue = 'block';
+  let collapseComputed = false;
   let shorthandProps = new Set();
   let pseudoClasses = new Set();
   let primaryMediaQuery = null;
@@ -60,6 +61,7 @@
   $: if (element && element !== initializedElement) {
     initializedElement = element;
     activeState = 'normal';
+    collapseComputed = false;
     initFromElement(element);
     positionNearElement(element);
     positionedElement = element;
@@ -178,7 +180,10 @@
   // ── Update panel from authored source data ──────────────────────
   function updateFromSource(src) {
     // Auto-collapse: sections without authored CSS values start collapsed
-    collapsedSections = computeCollapsedSections(src.properties, ALL_SECTION_IDS);
+    if (!collapseComputed) {
+      collapsedSections = computeCollapsedSections(src.properties, ALL_SECTION_IDS);
+      collapseComputed = true;
+    }
     if (src.properties) {
       for (const [prop, val] of Object.entries(src.properties)) {
         const def = findControlDef(prop);
@@ -404,7 +409,8 @@
   // ── Control event handlers ──────────────────────────────────────
   function onControlInput(e) {
     const { property, value } = e.detail;
-    controlValues[property] = value;
+    controlValues = { ...controlValues, [property]: value };
+    normalControlValues[property] = value;
 
     applyLivePreview(property, value);
     debounceSendChange(property, value);
@@ -412,7 +418,8 @@
 
   function onControlChange(e) {
     const { property, value } = e.detail;
-    controlValues[property] = value;
+    controlValues = { ...controlValues, [property]: value };
+    normalControlValues[property] = value;
 
     applyLivePreview(property, value);
     sendChangeImmediate(property, value);

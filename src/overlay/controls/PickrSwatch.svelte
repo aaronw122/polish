@@ -159,6 +159,7 @@
     });
 
     pickrInstance.on('changestop', (_, inst) => {
+      if (updatingFromProp) return;
       clearTimeout(commitTimer);
       const hex = pickrColorToHex(inst.getColor());
       dispatch('change', { value: hex });
@@ -251,6 +252,7 @@
 <style>
   .pickr-wrap {
     flex-shrink: 0;
+    position: relative;
   }
   .pickr-swatch {
     width: 28px;
@@ -276,7 +278,10 @@
   }
   .pickr-inline {
     display: none;
-    margin-top: 6px;
+    position: absolute;
+    top: 0;
+    left: calc(100% + 6px);
+    z-index: 200;
   }
   .pickr-inline.open {
     display: block;

@@ -17,17 +17,22 @@
   let lastHexValue = '#000000';
   $: if (!isTransparent) lastHexValue = hexValue;
 
+  let swatchValue = '#000000';
+  $: swatchValue = hexValue;
+
   let textValue = '';
   $: textValue = isTransparent ? 'transparent' : hexValue;
 
   function onPickrInput(e) {
     const nextColor = e.detail.value;
+    swatchValue = nextColor;
     textValue = nextColor;
     dispatch('input', { property, value: nextColor });
   }
 
   function onPickrChange(e) {
     const nextColor = e.detail.value;
+    swatchValue = nextColor;
     textValue = nextColor;
     dispatch('change', { property, value: nextColor });
   }
@@ -37,6 +42,7 @@
     const nextColor = e.target.value.trim();
     textValue = nextColor;
     if (HEX_RE.test(nextColor)) {
+      swatchValue = nextColor;
       dispatch('input', { property, value: nextColor });
     }
   }
@@ -45,6 +51,7 @@
     if (isTransparent) return;
     const nextColor = e.target.value.trim();
     if (HEX_RE.test(nextColor)) {
+      swatchValue = nextColor;
       dispatch('change', { property, value: nextColor });
     }
   }
@@ -58,7 +65,7 @@
   <label class="polish-control-label">{label}</label>
   <div class="polish-control-inputs">
     <PickrSwatch
-      color={hexValue}
+      color={swatchValue}
       showTransparent={true}
       {isTransparent}
       on:input={onPickrInput}
