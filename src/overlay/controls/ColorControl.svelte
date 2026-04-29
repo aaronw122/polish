@@ -15,12 +15,15 @@
   let h = 0;
   let transparent = false;
   let lastOklch = { l: 0, c: 0, h: 0 };
+  let selfDispatched = false; // guard against re-parsing our own output
 
   // Parse incoming value into OKLCH whenever it changes externally
   $: {
     const isT = checkTransparent(value);
     transparent = isT;
-    if (!isT) {
+    if (selfDispatched) {
+      selfDispatched = false;
+    } else if (!isT) {
       const parsed = toOklch(value);
       if (parsed) {
         l = parsed.l;
@@ -47,6 +50,7 @@
     if (dimension === 'l') l = val;
     else if (dimension === 'c') c = val;
     else if (dimension === 'h') h = val;
+    selfDispatched = true;
     dispatch('input', { property, value: fromOklch({ l, c, h }, format) });
   }
 
@@ -55,6 +59,7 @@
     if (dimension === 'l') l = val;
     else if (dimension === 'c') c = val;
     else if (dimension === 'h') h = val;
+    selfDispatched = true;
     dispatch('change', { property, value: fromOklch({ l, c, h }, format) });
   }
 
