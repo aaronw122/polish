@@ -7,6 +7,14 @@ import App from './App.svelte';
   if (window.__polishOverlayInitialized) return;
   window.__polishOverlayInitialized = true;
 
+  // Detect Polish server origin from the script's own URL.
+  // When injected cross-origin (e.g., script on :3456, page on :5173),
+  // the overlay needs to connect WebSocket to Polish's port, not the page's.
+  try {
+    const src = document.currentScript && document.currentScript.src;
+    if (src) window.__polishOrigin = new URL(src).origin;
+  } catch { /* same-origin fallback */ }
+
   console.log('[Polish] main.js executing');
 
   const host = document.createElement('div');

@@ -812,11 +812,6 @@
     border-color: rgba(74, 158, 255, 0.3);
     color: #4A9EFF;
     font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 3px;
-    background: rgba(168, 85, 247, 0.15);
-    color: #c084fc;
-    border: 1px solid rgba(168, 85, 247, 0.25);
   }
 
   /* Ambiguity warning */

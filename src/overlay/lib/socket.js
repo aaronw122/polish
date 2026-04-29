@@ -12,8 +12,11 @@ export function setMessageHandler(handler) {
 }
 
 export function connect() {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${location.host}/__polish__/ws`;
+  // Use Polish server origin if loaded cross-origin, otherwise same host
+  const origin = window.__polishOrigin || location.origin;
+  const wsProtocol = origin.startsWith('https') ? 'wss:' : 'ws:';
+  const host = new URL(origin).host;
+  const url = `${wsProtocol}//${host}/__polish__/ws`;
 
   ws = new WebSocket(url);
 

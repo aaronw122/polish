@@ -21,7 +21,9 @@
     if (desc.id) {
       selfPart = '#' + desc.id;
     } else if (desc.classes.length) {
-      selfPart = '.' + desc.classes.join('.');
+      // Use only simple class names (skip Tailwind bracket notation like min-[481px])
+      const simpleClasses = desc.classes.filter(c => /^[\w-]+$/.test(c));
+      selfPart = simpleClasses.length ? desc.tag + '.' + simpleClasses.join('.') : desc.tag;
     } else {
       selfPart = desc.tag;
     }
@@ -31,12 +33,28 @@
     while (parent && parent !== document.body && parent !== document.documentElement) {
       if (parent.id) return '#' + parent.id + ' ' + selfPart;
       if (parent.classList.length > 0) {
-        return '.' + Array.from(parent.classList).join('.') + ' ' + selfPart;
+        const parentClasses = Array.from(parent.classList).filter(c => /^[\w-]+$/.test(c));
+        if (parentClasses.length) return '.' + parentClasses.join('.') + ' ' + selfPart;
       }
       parent = parent.parentElement;
     }
 
     return selfPart;
+  }
+
+  // Detect compiled/hashed CSS filenames (e.g., index-DueiILQr.css)
+  function isCompiledCss(filePath) {
+    if (!filePath) return false;
+    const basename = filePath.split('/').pop();
+    return /[\w]+-[A-Za-z0-9_-]{6,}\.(css|scss)$/.test(basename);
+  }
+
+  // Derive the HTML file path from the current page URL
+  function deriveHtmlFilePath() {
+    let p = window.location.pathname;
+    if (p.endsWith('/')) p += 'index.html';
+    else if (!/\.\w+$/.test(p)) p += '/index.html';
+    return p.replace(/^\//, '');
   }
 
   // ── Overlay DOM refs ────────────────────────────────────────────
@@ -290,6 +308,17 @@
 
     let file = message.file;
     let selector = message.selector;
+    let styleType = message.styleType || null;
+
+    // Compiled CSS (Tailwind, Vite bundles): write inline styles to HTML instead.
+    // Editing utility class rules would break all elements sharing that class.
+    let compiledCss = false;
+    if (isCompiledCss(file) && $selectedElement) {
+      file = deriveHtmlFilePath();
+      selector = buildFallbackSelector($selectedElement);
+      styleType = 'inline';
+      compiledCss = true;
+    }
 
     // No-source fallback: build a selector and target the first known CSS file
     if (!selector && $selectedElement) {
@@ -307,8 +336,8 @@
       selector,
       line: message.line,
       properties: message.properties || {},
-      styleType: message.styleType || null,
-      cssRule: message.cssRule || null,
+      styleType,
+      cssRule: compiledCss ? null : (message.cssRule || null),
       cssFiles,
       matchedRules,
       pseudoStates: message.pseudoStates || {},

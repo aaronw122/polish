@@ -178,7 +178,7 @@ function scanCssFile(filePath, content, fileIndex) {
  * Returns { rules, inlineStyles, linkedCssFiles } where linkedCssFiles
  * is an array of resolved absolute paths for any <link rel="stylesheet"> elements.
  */
-function scanHtmlFile(filePath, content, startFileIndex) {
+function scanHtmlFile(filePath, content, startFileIndex, projectDir) {
   const { styleBlocks, inlineStyles, linkedStylesheets } = parseHTMLFile(content, filePath);
   const rules = [];
   let fileIndex = startFileIndex;
@@ -188,7 +188,13 @@ function scanHtmlFile(filePath, content, startFileIndex) {
   }
 
   const linkedCssFiles = linkedStylesheets
-    .map((href) => path.resolve(path.dirname(filePath), href))
+    .map((href) => {
+      // Absolute hrefs (e.g. "/assets/style.css") resolve against the project root
+      if (href.startsWith('/') && projectDir) {
+        return path.join(projectDir, href);
+      }
+      return path.resolve(path.dirname(filePath), href);
+    })
     .filter((cssPath) => fs.existsSync(cssPath));
 
   return { rules, inlineStyles, linkedCssFiles, nextFileIndex: fileIndex };
@@ -530,7 +536,7 @@ export class Resolver {
     //         and discover which CSS files are actually linked.
     for (const filePath of htmlFilePaths) {
       const content = fs.readFileSync(filePath, 'utf-8');
-      const result = scanHtmlFile(filePath, content, fileIndex);
+      const result = scanHtmlFile(filePath, content, fileIndex, this.projectDir);
       fileIndex = result.nextFileIndex;
 
       this.rules.push(...result.rules);

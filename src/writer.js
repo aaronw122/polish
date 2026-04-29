@@ -589,17 +589,33 @@ function applyToMatchingStyleBlock(html, filePath, selector, property, value, li
 /**
  * Append a change to the first <style> block in the HTML.
  * Used as a fallback when no existing block contains the target selector.
+ * If no <style> block exists (e.g., SPA builds), creates a <style data-polish> block.
  */
 function applyToFirstStyleBlock(html, filePath, selector, property, value) {
   const firstMatch = /(<style[^>]*>)([\s\S]*?)(<\/style>)/i.exec(html);
-  if (!firstMatch) return html;
 
-  const root = postcss.parse(firstMatch[2], { from: filePath });
-  applyChange(root, selector, property, value, null);
+  if (firstMatch) {
+    const root = postcss.parse(firstMatch[2], { from: filePath });
+    applyChange(root, selector, property, value, null);
 
-  return html.substring(0, firstMatch.index)
-    + firstMatch[1] + root.toString() + firstMatch[3]
-    + html.substring(firstMatch.index + firstMatch[0].length);
+    return html.substring(0, firstMatch.index)
+      + firstMatch[1] + root.toString() + firstMatch[3]
+      + html.substring(firstMatch.index + firstMatch[0].length);
+  }
+
+  // No <style> block exists — create one (common for SPA builds)
+  const newRule = `${selector} { ${property}: ${value}; }`;
+  const newBlock = `<style data-polish>\n${newRule}\n  </style>`;
+
+  const headClose = html.lastIndexOf('</head>');
+  if (headClose !== -1) {
+    return html.substring(0, headClose) + '  ' + newBlock + '\n  ' + html.substring(headClose);
+  }
+  const bodyClose = html.lastIndexOf('</body>');
+  if (bodyClose !== -1) {
+    return html.substring(0, bodyClose) + '  ' + newBlock + '\n  ' + html.substring(bodyClose);
+  }
+  return html + '\n' + newBlock;
 }
 
 /**
@@ -646,17 +662,21 @@ async function writeInlineStyle(filePath, selector, property, value, lineHint) {
  * This is a lightweight parse used only by the inline-style writer.
  */
 function parseSelectorForLineMatching(selector) {
+  // Only use the last simple selector (the target element, not ancestors)
+  const parts = selector.trim().split(/\s+/);
+  const target = parts[parts.length - 1];
+
   const info = { tag: null, id: null, classes: [] };
 
-  const idMatch = selector.match(/#([\w-]+)/);
+  const idMatch = target.match(/#([\w-]+)/);
   if (idMatch) info.id = idMatch[1];
 
-  const classMatches = selector.matchAll(/\.([\w-]+)/g);
+  const classMatches = target.matchAll(/\.([\w-]+)/g);
   for (const m of classMatches) {
     info.classes.push(m[1]);
   }
 
-  const tagMatch = selector.match(/^([\w-]+)/);
+  const tagMatch = target.match(/^([\w-]+)/);
   if (tagMatch) info.tag = tagMatch[1];
 
   return info;
