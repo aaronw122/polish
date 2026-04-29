@@ -1,12 +1,14 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { rgbToHex } from '../lib/utils.js';
+  import PickrSwatch from './PickrSwatch.svelte';
 
   export let property;
   export let value = '#000000';
   export let label = '';
 
   const dispatch = createEventDispatcher();
+  const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
   $: isTransparent = rgbToHex(value) === 'transparent';
   $: hexValue = isTransparent ? '#000000' : rgbToHex(value);
@@ -18,32 +20,32 @@
   let textValue = '';
   $: textValue = isTransparent ? 'transparent' : hexValue;
 
-  function onPickerInput(e) {
-    const v = e.target.value;
-    textValue = v;
-    dispatch('input', { property, value: v });
+  function onPickrInput(e) {
+    const nextColor = e.detail.value;
+    textValue = nextColor;
+    dispatch('input', { property, value: nextColor });
   }
 
-  function onPickerChange(e) {
-    const v = e.target.value;
-    textValue = v;
-    dispatch('change', { property, value: v });
+  function onPickrChange(e) {
+    const nextColor = e.detail.value;
+    textValue = nextColor;
+    dispatch('change', { property, value: nextColor });
   }
 
   function onTextInput(e) {
     if (isTransparent) return;
-    const v = e.target.value.trim();
-    textValue = v;
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      dispatch('input', { property, value: v });
+    const nextColor = e.target.value.trim();
+    textValue = nextColor;
+    if (HEX_RE.test(nextColor)) {
+      dispatch('input', { property, value: nextColor });
     }
   }
 
   function onTextChange(e) {
     if (isTransparent) return;
-    const v = e.target.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      dispatch('change', { property, value: v });
+    const nextColor = e.target.value.trim();
+    if (HEX_RE.test(nextColor)) {
+      dispatch('change', { property, value: nextColor });
     }
   }
 
@@ -55,16 +57,14 @@
 <div class="polish-control-row">
   <label class="polish-control-label">{label}</label>
   <div class="polish-control-inputs">
-    <div class="polish-swatch" class:transparent={isTransparent}>
-      <input
-        type="color"
-        class="polish-color-picker"
-        data-property={property}
-        value={hexValue}
-        on:input={onPickerInput}
-        on:change={onPickerChange}
-      />
-    </div>
+    <PickrSwatch
+      color={hexValue}
+      showTransparent={true}
+      {isTransparent}
+      on:input={onPickrInput}
+      on:change={onPickrChange}
+      on:transparent={toggleTransparent}
+    />
     <input
       type="text"
       class="polish-hex-input"
@@ -77,12 +77,6 @@
       on:input={onTextInput}
       on:change={onTextChange}
     />
-    <button
-      class="polish-no-color-btn"
-      class:active={isTransparent}
-      title={isTransparent ? 'Add color' : 'Set transparent'}
-      on:click={toggleTransparent}
-    ></button>
   </div>
 </div>
 
@@ -100,39 +94,6 @@
     display: flex;
     align-items: center;
     gap: 4px;
-  }
-  .polish-swatch {
-    position: relative;
-    width: 28px;
-    height: 22px;
-    flex-shrink: 0;
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .polish-swatch.transparent::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: repeating-conic-gradient(#555 0% 25%, #333 0% 50%) 50% / 8px 8px;
-    border-radius: 3px;
-    pointer-events: none;
-  }
-  .polish-color-picker {
-    width: 100%;
-    height: 100%;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 3px;
-    padding: 0;
-    cursor: pointer;
-    background: none;
-    -webkit-appearance: none;
-  }
-  .polish-color-picker::-webkit-color-swatch-wrapper {
-    padding: 1px;
-  }
-  .polish-color-picker::-webkit-color-swatch {
-    border: none;
-    border-radius: 2px;
   }
   .polish-hex-input {
     flex: 1;
@@ -152,30 +113,5 @@
   .polish-hex-input.dimmed {
     color: #666;
     font-style: italic;
-  }
-  .polish-no-color-btn {
-    width: 22px;
-    height: 22px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
-    cursor: pointer;
-    position: relative;
-    padding: 0;
-    flex-shrink: 0;
-  }
-  .polish-no-color-btn::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    left: 50%;
-    width: 1.5px;
-    height: 14px;
-    background: #e55;
-    transform: translateX(-50%) rotate(45deg);
-  }
-  .polish-no-color-btn.active {
-    border-color: rgba(74, 158, 255, 0.5);
-    background: rgba(74, 158, 255, 0.1);
   }
 </style>
