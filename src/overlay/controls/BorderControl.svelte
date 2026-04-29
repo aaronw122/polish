@@ -8,6 +8,7 @@
   const dispatch = createEventDispatcher();
   const SIDES = ['top', 'right', 'bottom', 'left'];
   const STYLES = ['none', 'solid', 'dashed', 'dotted', 'double'];
+  const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
   let activeSide = 'all';
   let dropdownOpen = false;
@@ -21,6 +22,67 @@
     { value: 'right',  label: 'Right' },
   ];
 
+  // Derive current side's values
+  $: refSide = activeSide === 'all' ? 'top' : activeSide;
+  $: currentWidth = parseNumericValue(values[`border-${refSide}-width`] || '0px').num;
+  $: currentStyle = values[`border-${refSide}-style`] || 'none';
+  $: currentColorRaw = values[`border-${refSide}-color`] || '';
+  $: normalizedColor = rgbToHex(currentColorRaw);
+  $: currentHex = normalizedColor === 'transparent' ? '#000000' : normalizedColor;
+
+  function selectSide(side) {
+    activeSide = side;
+    dropdownOpen = false;
+  }
+
+  /** Expand a base border property (e.g. 'border-width') to per-side properties and dispatch. */
+  function emitBorderEvent(eventName, baseBorderProperty, value) {
+    const sides = activeSide === 'all' ? SIDES : [activeSide];
+    for (const side of sides) {
+      const perSide = baseBorderProperty.replace('border-', `border-${side}-`);
+      dispatch(eventName, { property: perSide, value });
+    }
+  }
+
+  function onColorInput(e) {
+    emitBorderEvent('input', 'border-color', e.detail.value);
+  }
+  function onColorChange(e) {
+    emitBorderEvent('change', 'border-color', e.detail.value);
+  }
+
+  function parseBorderWidth(rawInput) {
+    return Math.max(0, parseInt(rawInput) || 0) + 'px';
+  }
+
+  function onWidthInput(e) {
+    emitBorderEvent('input', 'border-width', parseBorderWidth(e.target.value));
+  }
+  function onWidthChange(e) {
+    const widthPx = parseBorderWidth(e.target.value);
+    emitBorderEvent('change', 'border-width', widthPx);
+    if (parseInt(widthPx) > 0 && currentStyle === 'none') {
+      emitBorderEvent('change', 'border-style', 'solid');
+    }
+  }
+
+  function onStyleChange(e) {
+    emitBorderEvent('change', 'border-style', e.target.value);
+  }
+
+  function onHexInput(e) {
+    const nextColor = e.target.value.trim();
+    if (HEX_RE.test(nextColor)) {
+      emitBorderEvent('input', 'border-color', nextColor);
+    }
+  }
+  function onHexChange(e) {
+    const nextColor = e.target.value.trim();
+    if (HEX_RE.test(nextColor)) {
+      emitBorderEvent('change', 'border-color', nextColor);
+    }
+  }
+
   // SVG icons: 14x14, solid line = active side, dashed = inactive sides
   const SIDE_ICONS = {
     all:    '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="1.5" width="11" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>',
@@ -29,78 +91,6 @@
     left:   '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="1.5" y1="1.5" x2="1.5" y2="12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="1.5" y1="1.5" x2="12.5" y2="1.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="12.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="12.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/></svg>',
     right:  '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="12.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="1.5" y1="1.5" x2="12.5" y2="1.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="12.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="1.5" x2="1.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/></svg>',
   };
-
-  // Derive current side's values
-  $: refSide = activeSide === 'all' ? 'top' : activeSide;
-  $: currentWidth = parseNumericValue(values[`border-${refSide}-width`] || '0px').num;
-  $: currentStyle = values[`border-${refSide}-style`] || 'none';
-  $: currentColorRaw = values[`border-${refSide}-color`] || '';
-  $: currentHex = rgbToHex(currentColorRaw) === 'transparent' ? '#000000' : rgbToHex(currentColorRaw);
-
-  function selectSide(side) {
-    activeSide = side;
-    dropdownOpen = false;
-  }
-
-  function emitChange(property, value) {
-    if (activeSide === 'all') {
-      for (const s of SIDES) {
-        const perSide = property.replace('border-', `border-${s}-`);
-        dispatch('change', { property: perSide, value });
-      }
-    } else {
-      const perSide = property.replace('border-', `border-${activeSide}-`);
-      dispatch('change', { property: perSide, value });
-    }
-  }
-
-  function emitInput(property, value) {
-    if (activeSide === 'all') {
-      for (const s of SIDES) {
-        const perSide = property.replace('border-', `border-${s}-`);
-        dispatch('input', { property: perSide, value });
-      }
-    } else {
-      const perSide = property.replace('border-', `border-${activeSide}-`);
-      dispatch('input', { property: perSide, value });
-    }
-  }
-
-  function onColorInput(e) {
-    emitInput('border-color', e.detail.value);
-  }
-  function onColorChange(e) {
-    emitChange('border-color', e.detail.value);
-  }
-
-  function onWidthInput(e) {
-    const v = Math.max(0, parseInt(e.target.value) || 0) + 'px';
-    emitInput('border-width', v);
-  }
-  function onWidthChange(e) {
-    const v = Math.max(0, parseInt(e.target.value) || 0) + 'px';
-    emitChange('border-width', v);
-    if (parseInt(v) > 0 && currentStyle === 'none') {
-      emitChange('border-style', 'solid');
-    }
-  }
-
-  function onStyleChange(e) {
-    emitChange('border-style', e.target.value);
-  }
-
-  function onHexInput(e) {
-    const v = e.target.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      emitInput('border-color', v);
-    }
-  }
-  function onHexChange(e) {
-    const v = e.target.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      emitChange('border-color', v);
-    }
-  }
 
   function handleClickOutside(e) {
     if (dropdownOpen && dropdownEl && !dropdownEl.contains(e.target)) {

@@ -12,9 +12,11 @@
   export let isTransparent = false;
 
   const dispatch = createEventDispatcher();
+  const COMMIT_DELAY_MS = 300;
 
   let pickerOpen = false;
   let pickrInstance = null;
+  let transparentBtn = null;
   let wrapEl;
   let pickrEl;
   let updatingFromProp = false;
@@ -114,6 +116,55 @@
     }
   `;
 
+  function pickrColorToHex(c) {
+    return '#' + c.toHEXA().slice(0, 3).join('');
+  }
+
+  function injectPickrStyles() {
+    if (cssInjected) return;
+    const root = wrapEl.getRootNode();
+    const style = document.createElement('style');
+    style.textContent = pickrBaseCSS + DARK_OVERRIDES;
+    root.appendChild(style);
+    cssInjected = true;
+  }
+
+  function createTransparentToggle() {
+    if (!showTransparent) return;
+    const root = pickrInstance.getRoot();
+    const btn = document.createElement('button');
+    btn.className = 'pcr-no-color' + (isTransparent ? ' active' : '');
+    btn.title = isTransparent ? 'Add color' : 'Set transparent';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dispatch('transparent');
+      pickerOpen = false;
+    });
+    if (root.interaction.result) {
+      root.interaction.result.insertAdjacentElement('afterend', btn);
+    }
+    transparentBtn = btn;
+  }
+
+  function wirePickrEvents() {
+    pickrInstance.on('change', (c) => {
+      if (updatingFromProp) return;
+      const hex = pickrColorToHex(c);
+      dispatch('input', { value: hex });
+
+      clearTimeout(commitTimer);
+      commitTimer = setTimeout(() => {
+        dispatch('change', { value: hex });
+      }, COMMIT_DELAY_MS);
+    });
+
+    pickrInstance.on('changestop', (_, inst) => {
+      clearTimeout(commitTimer);
+      const hex = pickrColorToHex(inst.getColor());
+      dispatch('change', { value: hex });
+    });
+  }
+
   function togglePicker() {
     pickerOpen = !pickerOpen;
     if (pickerOpen && !pickrInstance) {
@@ -123,15 +174,7 @@
 
   function createPickr() {
     if (!pickrEl || pickrInstance) return;
-
-    // Inject CSS into shadow root once
-    if (!cssInjected) {
-      const root = wrapEl.getRootNode();
-      const style = document.createElement('style');
-      style.textContent = pickrBaseCSS + DARK_OVERRIDES;
-      root.appendChild(style);
-      cssInjected = true;
-    }
+    injectPickrStyles();
 
     pickrInstance = Pickr.create({
       el: pickrEl,
@@ -155,54 +198,21 @@
       }
     });
 
-    if (showTransparent) {
-      try {
-        const root = pickrInstance.getRoot();
-        const interaction = root.interaction;
-        const toggleBtn = document.createElement('button');
-        toggleBtn.className = 'pcr-no-color' + (isTransparent ? ' active' : '');
-        toggleBtn.title = isTransparent ? 'Add color' : 'Set transparent';
-        toggleBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          dispatch('transparent');
-          pickerOpen = false;
-        });
-        if (interaction.result) {
-          interaction.result.insertAdjacentElement('afterend', toggleBtn);
-        }
-        pickrInstance._transparentBtn = toggleBtn;
-      } catch (e) {}
-    }
-
-    pickrInstance.on('change', (c) => {
-      if (updatingFromProp) return;
-      const hex = '#' + c.toHEXA().slice(0, 3).join('');
-      dispatch('input', { value: hex });
-
-      clearTimeout(commitTimer);
-      commitTimer = setTimeout(() => {
-        dispatch('change', { value: hex });
-      }, 300);
-    });
-
-    pickrInstance.on('changestop', (_, inst) => {
-      clearTimeout(commitTimer);
-      const c = inst.getColor();
-      const hex = '#' + c.toHEXA().slice(0, 3).join('');
-      dispatch('change', { value: hex });
-    });
+    createTransparentToggle();
+    wirePickrEvents();
   }
 
+  // Sync pickr color when prop changes externally
   $: if (pickrInstance && color) {
     updatingFromProp = true;
-    try { pickrInstance.setColor(color); } catch (e) {}
+    try { pickrInstance.setColor(color); } catch (_) {}
     updatingFromProp = false;
   }
 
-  $: if (pickrInstance && pickrInstance._transparentBtn) {
-    const btn = pickrInstance._transparentBtn;
-    btn.className = 'pcr-no-color' + (isTransparent ? ' active' : '');
-    btn.title = isTransparent ? 'Add color' : 'Set transparent';
+  // Sync transparent toggle button state
+  $: if (transparentBtn) {
+    transparentBtn.className = 'pcr-no-color' + (isTransparent ? ' active' : '');
+    transparentBtn.title = isTransparent ? 'Add color' : 'Set transparent';
   }
 
   function handleClickOutside(e) {
@@ -221,9 +231,10 @@
     const root = wrapEl?.getRootNode() || document;
     root.removeEventListener('mousedown', handleClickOutside, true);
     if (pickrInstance) {
-      try { pickrInstance.destroyAndRemove(); } catch (e) {}
+      try { pickrInstance.destroyAndRemove(); } catch (_) {}
       pickrInstance = null;
     }
+    transparentBtn = null;
   });
 </script>
 

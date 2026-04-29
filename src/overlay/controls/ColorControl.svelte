@@ -8,6 +8,7 @@
   export let label = '';
 
   const dispatch = createEventDispatcher();
+  const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
   $: isTransparent = rgbToHex(value) === 'transparent';
   $: hexValue = isTransparent ? '#000000' : rgbToHex(value);
@@ -20,31 +21,31 @@
   $: textValue = isTransparent ? 'transparent' : hexValue;
 
   function onPickrInput(e) {
-    const v = e.detail.value;
-    textValue = v;
-    dispatch('input', { property, value: v });
+    const nextColor = e.detail.value;
+    textValue = nextColor;
+    dispatch('input', { property, value: nextColor });
   }
 
   function onPickrChange(e) {
-    const v = e.detail.value;
-    textValue = v;
-    dispatch('change', { property, value: v });
+    const nextColor = e.detail.value;
+    textValue = nextColor;
+    dispatch('change', { property, value: nextColor });
   }
 
   function onTextInput(e) {
     if (isTransparent) return;
-    const v = e.target.value.trim();
-    textValue = v;
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      dispatch('input', { property, value: v });
+    const nextColor = e.target.value.trim();
+    textValue = nextColor;
+    if (HEX_RE.test(nextColor)) {
+      dispatch('input', { property, value: nextColor });
     }
   }
 
   function onTextChange(e) {
     if (isTransparent) return;
-    const v = e.target.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      dispatch('change', { property, value: v });
+    const nextColor = e.target.value.trim();
+    if (HEX_RE.test(nextColor)) {
+      dispatch('change', { property, value: nextColor });
     }
   }
 
