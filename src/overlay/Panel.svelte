@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS, SIZE_CONTROLS, isTextElement } from './lib/schema.js';
+  import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS, SIZE_CONTROLS, isTextElement, computeCollapsedSections } from './lib/schema.js';
   import {
     rgbToHex, parseNumericValue, clampValue, cssToCamel,
     computePanelPosition, DEBOUNCE_MS,
@@ -172,8 +172,13 @@
 
   }
 
+  // All possible section ids for collapse computation
+  const ALL_SECTION_IDS = ['text', 'layout', 'spacing', 'border', 'colors', 'effects'];
+
   // ── Update panel from authored source data ──────────────────────
   function updateFromSource(src) {
+    // Auto-collapse: sections without authored CSS values start collapsed
+    collapsedSections = computeCollapsedSections(src.properties, ALL_SECTION_IDS);
     if (src.properties) {
       for (const [prop, val] of Object.entries(src.properties)) {
         const def = findControlDef(prop);

@@ -93,3 +93,32 @@ const TEXT_ELEMENTS = new Set([
 export function isTextElement(tagName) {
   return TEXT_ELEMENTS.has(tagName.toLowerCase());
 }
+
+/**
+ * Map of section id → CSS property names used by that section.
+ * Used by auto-collapse to determine if a section has authored values.
+ */
+export const SECTION_PROPS_MAP = {
+  text: CONTROL_SCHEMA.find(s => s.id === 'text').controls.map(c => c.property),
+  layout: [...LAYOUT_PROPS],
+  spacing: [...SPACING_PROPS],
+  border: [...BORDER_PROPS],
+  colors: CONTROL_SCHEMA.find(s => s.id === 'colors').controls.map(c => c.property),
+  effects: CONTROL_SCHEMA.find(s => s.id === 'effects').controls.map(c => c.property),
+};
+
+/**
+ * Compute collapsed state for each section based on authored properties.
+ * Sections with no authored properties start collapsed (true);
+ * those with any authored property start expanded (false).
+ */
+export function computeCollapsedSections(sourceProperties, sectionIds) {
+  const result = {};
+  const authored = sourceProperties || {};
+  for (const id of sectionIds) {
+    const props = SECTION_PROPS_MAP[id] || [];
+    const hasAuthored = props.some(prop => prop in authored);
+    result[id] = !hasAuthored;
+  }
+  return result;
+}

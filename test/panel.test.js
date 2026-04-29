@@ -19,8 +19,12 @@ import {
   WEB_SAFE_FONTS,
   FONT_WEIGHTS,
   SPACING_PROPS,
+  BORDER_PROPS,
+  LAYOUT_PROPS,
   SIZE_CONTROLS,
   isTextElement,
+  SECTION_PROPS_MAP,
+  computeCollapsedSections,
 } from '../src/overlay/lib/schema.js';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -487,5 +491,111 @@ describe('constants', () => {
     assert.equal(FONT_WEIGHTS.length, 9);
     assert.equal(FONT_WEIGHTS[0].value, '100');
     assert.equal(FONT_WEIGHTS[8].value, '900');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SECTION_PROPS_MAP
+// ═══════════════════════════════════════════════════════════════════
+
+describe('SECTION_PROPS_MAP', () => {
+  it('has entries for all six panel sections', () => {
+    const ids = Object.keys(SECTION_PROPS_MAP);
+    assert.deepEqual(ids.sort(), ['border', 'colors', 'effects', 'layout', 'spacing', 'text']);
+  });
+
+  it('text section has font-family, font-size, font-weight', () => {
+    assert.deepEqual(SECTION_PROPS_MAP.text, ['font-family', 'font-size', 'font-weight']);
+  });
+
+  it('layout section matches LAYOUT_PROPS', () => {
+    assert.deepEqual(SECTION_PROPS_MAP.layout, LAYOUT_PROPS);
+  });
+
+  it('spacing section matches SPACING_PROPS', () => {
+    assert.deepEqual(SECTION_PROPS_MAP.spacing, SPACING_PROPS);
+  });
+
+  it('border section matches BORDER_PROPS', () => {
+    assert.deepEqual(SECTION_PROPS_MAP.border, BORDER_PROPS);
+  });
+
+  it('colors section has background-color and color', () => {
+    assert.deepEqual(SECTION_PROPS_MAP.colors, ['background-color', 'color']);
+  });
+
+  it('effects section has border-radius and opacity', () => {
+    assert.deepEqual(SECTION_PROPS_MAP.effects, ['border-radius', 'opacity']);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// computeCollapsedSections
+// ═══════════════════════════════════════════════════════════════════
+
+describe('computeCollapsedSections', () => {
+  const allSections = ['text', 'layout', 'spacing', 'border', 'colors', 'effects'];
+
+  it('collapses all sections when no authored properties', () => {
+    const result = computeCollapsedSections({}, allSections);
+    for (const id of allSections) {
+      assert.equal(result[id], true, `${id} should be collapsed`);
+    }
+  });
+
+  it('collapses all sections when properties is null/undefined', () => {
+    const result = computeCollapsedSections(null, allSections);
+    for (const id of allSections) {
+      assert.equal(result[id], true, `${id} should be collapsed`);
+    }
+  });
+
+  it('expands section with authored property', () => {
+    const result = computeCollapsedSections({ 'font-size': '16px' }, allSections);
+    assert.equal(result.text, false, 'text should be expanded');
+    assert.equal(result.layout, true, 'layout should be collapsed');
+    assert.equal(result.colors, true, 'colors should be collapsed');
+  });
+
+  it('expands colors section when background-color is authored', () => {
+    const result = computeCollapsedSections({ 'background-color': '#fff' }, allSections);
+    assert.equal(result.colors, false, 'colors should be expanded');
+    assert.equal(result.text, true, 'text should be collapsed');
+  });
+
+  it('expands multiple sections with authored properties', () => {
+    const result = computeCollapsedSections({
+      'font-size': '16px',
+      'color': '#333',
+      'padding-top': '10px',
+    }, allSections);
+    assert.equal(result.text, false, 'text expanded (font-size)');
+    assert.equal(result.colors, false, 'colors expanded (color)');
+    assert.equal(result.spacing, false, 'spacing expanded (padding-top)');
+    assert.equal(result.layout, true, 'layout collapsed');
+    assert.equal(result.border, true, 'border collapsed');
+    assert.equal(result.effects, true, 'effects collapsed');
+  });
+
+  it('expands layout section when width is authored', () => {
+    const result = computeCollapsedSections({ 'width': '100px' }, allSections);
+    assert.equal(result.layout, false, 'layout should be expanded');
+  });
+
+  it('expands border section when any border prop is authored', () => {
+    const result = computeCollapsedSections({ 'border-top-width': '1px' }, allSections);
+    assert.equal(result.border, false, 'border should be expanded');
+  });
+
+  it('expands effects section when border-radius is authored', () => {
+    const result = computeCollapsedSections({ 'border-radius': '8px' }, allSections);
+    assert.equal(result.effects, false, 'effects should be expanded');
+  });
+
+  it('only computes for requested section ids', () => {
+    const result = computeCollapsedSections({ 'font-size': '16px' }, ['text', 'colors']);
+    assert.equal(result.text, false);
+    assert.equal(result.colors, true);
+    assert.equal(result.layout, undefined, 'layout not requested');
   });
 });
