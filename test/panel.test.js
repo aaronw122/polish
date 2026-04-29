@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 // ── Import pure logic from the Svelte overlay modules ─────────────
 import {
   clampValue,
-  rgbToHex,
   parseNumericValue,
   cssToCamel,
   computePanelPosition,
@@ -51,45 +50,6 @@ describe('clampValue', () => {
   it('handles edge values exactly at min and max', () => {
     assert.equal(clampValue(0, 0, 100), 0);
     assert.equal(clampValue(100, 0, 100), 100);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// rgbToHex
-// ═══════════════════════════════════════════════════════════════════
-
-describe('rgbToHex', () => {
-  it('converts rgb() to hex', () => {
-    assert.equal(rgbToHex('rgb(255, 0, 0)'), '#ff0000');
-    assert.equal(rgbToHex('rgb(0, 128, 255)'), '#0080ff');
-    assert.equal(rgbToHex('rgb(0, 0, 0)'), '#000000');
-    assert.equal(rgbToHex('rgb(255, 255, 255)'), '#ffffff');
-  });
-
-  it('converts rgba() to hex (ignoring alpha)', () => {
-    assert.equal(rgbToHex('rgba(255, 0, 0, 0.5)'), '#ff0000');
-    assert.equal(rgbToHex('rgba(0, 128, 255, 1)'), '#0080ff');
-  });
-
-  it('returns #000000 for transparent', () => {
-    assert.equal(rgbToHex('transparent'), '#000000');
-    assert.equal(rgbToHex('rgba(0, 0, 0, 0)'), '#000000');
-  });
-
-  it('returns #000000 for null/undefined/empty', () => {
-    assert.equal(rgbToHex(null), '#000000');
-    assert.equal(rgbToHex(undefined), '#000000');
-    assert.equal(rgbToHex(''), '#000000');
-  });
-
-  it('passes through hex values', () => {
-    assert.equal(rgbToHex('#ff0000'), '#ff0000');
-    assert.equal(rgbToHex('#abc'), '#abc');
-  });
-
-  it('returns #000000 for unrecognized formats', () => {
-    assert.equal(rgbToHex('hsl(0, 100%, 50%)'), '#000000');
-    assert.equal(rgbToHex('red'), '#000000');
   });
 });
 

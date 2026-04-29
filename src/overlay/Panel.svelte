@@ -2,9 +2,10 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { CONTROL_SCHEMA, SPACING_PROPS, LAYOUT_PROPS } from './lib/schema.js';
   import {
-    rgbToHex, parseNumericValue, clampValue, cssToCamel,
+    parseNumericValue, clampValue, cssToCamel,
     computePanelPosition, DEBOUNCE_MS,
   } from './lib/utils.js';
+  import { detectFormat } from './lib/color.js';
   import { send } from './lib/socket.js';
   import { sourceData, uniformMode } from './stores/state.js';
   import ColorControl from './controls/ColorControl.svelte';
@@ -30,6 +31,7 @@
 
   // ── Control values (keyed by CSS property) ──────────────────────
   let controlValues = {};
+  let colorFormats = {};
   let spacingValues = {};
   let normalControlValues = {};
   let normalSpacingValues = {};
@@ -126,6 +128,17 @@
     controlValues = vals;
     normalControlValues = { ...vals };
 
+    // Computed styles are always in RGB — set initial format for color properties
+    const cf = {};
+    for (const sectionDef of CONTROL_SCHEMA) {
+      for (const def of sectionDef.controls) {
+        if (def.type === 'color') {
+          cf[def.property] = 'rgb';
+        }
+      }
+    }
+    colorFormats = cf;
+
     // Spacing
     const sv = {};
     SPACING_PROPS.forEach(prop => {
@@ -162,10 +175,17 @@
           // color, select, text — always sync from source
           controlValues[prop] = val;
           normalControlValues[prop] = val;
+
+          // Detect authored color format from source data
+          if (def.type === 'color') {
+            const fmt = detectFormat(val);
+            if (fmt) colorFormats[def.property] = fmt;
+          }
         }
       }
       controlValues = controlValues; // trigger reactivity
       normalControlValues = normalControlValues;
+      colorFormats = colorFormats; // trigger reactivity
     }
 
     // Layout props (not in CONTROL_SCHEMA, need their own sync loop)
@@ -625,6 +645,7 @@
                 <ColorControl
                   property={def.property}
                   value={controlValues[def.property] || ''}
+                  format={colorFormats[def.property] || 'hex'}
                   label={def.label}
                   on:input={onControlInput}
                   on:change={onControlChange}

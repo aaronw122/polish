@@ -9,18 +9,6 @@ export function clampValue(val, min, max) {
   return Math.min(max, Math.max(min, val));
 }
 
-export function rgbToHex(rgb) {
-  if (!rgb || rgb === 'transparent') return 'transparent';
-  if (rgb.startsWith('#')) return rgb.length === 7 ? rgb : rgb;
-  const match = rgb.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
-  if (!match) return '#000000';
-  if (match[4] !== undefined && parseFloat(match[4]) === 0) return 'transparent';
-  const r = parseInt(match[1], 10);
-  const g = parseInt(match[2], 10);
-  const b = parseInt(match[3], 10);
-  return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
-}
-
 export function parseNumericValue(val) {
   if (!val || val === 'auto' || val === 'none') return { num: 0, unit: 'px' };
   const match = String(val).match(/^(-?[\d.]+)\s*(px|rem|em|%|vw|vh)?$/);
