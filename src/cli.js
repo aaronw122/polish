@@ -1,49 +1,11 @@
-import http from 'node:http';
-import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
-import { createStaticServer } from './static-server.js';
 import { createProxyServer } from './proxy.js';
 import { createWebSocketServer } from './server.js';
 import { createResolver } from './resolver.js';
 import { createWatcher } from './watcher.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OVERLAY_JS = path.join(__dirname, '..', 'dist', 'overlay.js');
-const OVERLAY_CSS = path.join(__dirname, 'overlay', 'overlay.css');
-
-/**
- * Lightweight server that only serves Polish overlay assets.
- * Used in --src mode where the user's dev server is already running.
- */
-function createOverlayServer() {
-  return http.createServer((req, res) => {
-    // CORS — overlay is loaded cross-origin from the user's dev server
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    const urlPath = req.url.split('?')[0];
-
-    if (urlPath === '/__polish__/overlay.js' || urlPath === '/overlay.js') {
-      const content = fs.readFileSync(OVERLAY_JS, 'utf-8');
-      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache, no-store' });
-      res.end(content);
-      return;
-    }
-
-    if (urlPath === '/__polish__/overlay.css' || urlPath === '/overlay.css') {
-      const content = fs.readFileSync(OVERLAY_CSS, 'utf-8');
-      res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache, no-store' });
-      res.end(content);
-      return;
-    }
-
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
-  });
-}
-
-function startPolish(httpServer, dir, port, mode) {
+function startPolish(httpServer, dir, port) {
   const resolver = createResolver(dir);
   console.log(`Polish: scanned ${dir} (${resolver.rules.length} CSS rules found)`);
 
@@ -73,19 +35,8 @@ function startPolish(httpServer, dir, port, mode) {
   });
 
   httpServer.listen(port, () => {
-    if (mode === 'proxy') {
-      console.log(`Polish proxying → http://localhost:${port}`);
-      console.log(`Watching ${dir} for CSS changes`);
-    } else if (mode === 'src') {
-      console.log(`Polish ready on http://localhost:${port}`);
-      console.log(`Watching ${dir} for CSS changes`);
-      console.log('');
-      console.log('Inject into your running app — paste in browser console:');
-      console.log(`  (()=>{let s=document.createElement('script');s.src='http://localhost:${port}/overlay.js';document.body.appendChild(s)})()`);
-      console.log('');
-    } else {
-      console.log(`Polish serving ${dir} on http://localhost:${port}`);
-    }
+    console.log(`Polish proxying → http://localhost:${port}`);
+    console.log(`Watching ${dir} for CSS changes`);
   });
 }
 
@@ -95,26 +46,14 @@ program
   .name('polish')
   .description('Visually edit CSS/HTML on your live page')
   .version('0.1.0')
+  .requiredOption('--proxy <url>', 'Upstream server to proxy (e.g. http://localhost:3000)')
   .option('--port <number>', 'Port for Polish server', '3333')
-  .option('--dir <path>', 'Serve and edit a static site')
-  .option('--src <path>', 'Watch source files (use with your own dev server)')
-  .option('--proxy <url>', 'Proxy an upstream server (e.g. http://localhost:3000)')
+  .option('--dir <path>', 'Source directory to watch for CSS files', '.')
   .action((options) => {
     const port = parseInt(options.port, 10);
-
-    if (options.proxy) {
-      const dir = path.resolve(options.dir || options.src || '.');
-      const httpServer = createProxyServer({ targetUrl: options.proxy });
-      startPolish(httpServer, dir, port, 'proxy');
-    } else if (options.src) {
-      const dir = path.resolve(options.src);
-      const httpServer = createOverlayServer();
-      startPolish(httpServer, dir, port, 'src');
-    } else {
-      const dir = path.resolve(options.dir || '.');
-      const httpServer = createStaticServer({ dir });
-      startPolish(httpServer, dir, port, 'dir');
-    }
+    const dir = path.resolve(options.dir);
+    const httpServer = createProxyServer({ targetUrl: options.proxy });
+    startPolish(httpServer, dir, port);
   });
 
 program.parse();

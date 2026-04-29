@@ -9,7 +9,7 @@
   "scripts": {
     "build": "vite build",
     "build:watch": "vite build --watch",
-    "dev": "vite build && node bin/polish --dir test-site",
+    "dev": "vite build && node bin/polish --proxy http://localhost:3000 --dir test-site",
     "prepublishOnly": "vite build"
   },
   "dependencies": {

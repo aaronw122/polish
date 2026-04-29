@@ -4,42 +4,26 @@ Visual CSS editor that runs on your live page. Click any element, tweak its styl
 
 ## Usage
 
-### Static site (HTML + CSS)
-
-Polish serves your site and injects the editor overlay:
+Polish proxies your running dev server and injects the editor overlay:
 
 ```bash
-polish --dir ./my-site
-# → open http://localhost:3000
+# Start your dev server first
+npm run dev  # → running on http://localhost:3000
+
+# Then start Polish, pointing at your dev server
+polish --proxy http://localhost:3000
+# → open http://localhost:3333
 ```
 
-### Existing dev server (React, Vite, etc.)
-
-If you already have a dev server running, Polish runs alongside it as a side-channel. It watches your source files and serves only the overlay — your dev server handles everything else.
-
-```bash
-# Terminal 1: your dev server
-npm run dev  # → running on http://localhost:5173
-
-# Terminal 2: start Polish
-polish --src ./src --port 3456
-```
-
-Polish prints a one-liner to paste in your browser console. This injects the overlay into your running page:
-
-```js
-(()=>{let s=document.createElement('script');s.src='http://localhost:3456/overlay.js';document.body.appendChild(s)})()
-```
-
-**Why a separate port?** Polish needs a WebSocket connection between the browser overlay and the Node.js process that reads/writes your CSS files. Your dev server doesn't know about Polish, so Polish runs its own lightweight server for this communication channel. The overlay is injected into your page cross-origin — your dev server, HMR, and everything else continue working normally.
+Polish sits between you and your dev server. You open Polish's URL instead of your dev server's URL, and Polish proxies all requests through while injecting the visual editor overlay.
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
-| `--dir <path>` | Serve a static site directory and inject the overlay |
-| `--src <path>` | Watch source files for CSS (use with your own dev server) |
-| `--port <number>` | Port for Polish server (default: 3000) |
+| `--proxy <url>` | **(required)** Upstream server to proxy (e.g. `http://localhost:3000`) |
+| `--port <number>` | Port for Polish server (default: 3333) |
+| `--dir <path>` | Source directory to watch for CSS files (default: `.`) |
 
 ## How it works
 
