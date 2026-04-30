@@ -67,8 +67,15 @@
   }
 
   // ── Reactivity: update from source data ─────────────────────────
+  // Guard: only call updateFromSource when $sourceData actually changes,
+  // not on every reactive re-run (which can be triggered by borderValues
+  // or other variables referenced inside updateFromSource).
+  let _lastSourceData = null;
   $: if ($sourceData && element) {
-    updateFromSource($sourceData);
+    if ($sourceData !== _lastSourceData) {
+      _lastSourceData = $sourceData;
+      updateFromSource($sourceData);
+    }
   }
 
   // ── Helpers: pseudo-state control switching ─────────────────────

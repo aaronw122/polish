@@ -222,7 +222,6 @@
   }
 
   function onClick(e) {
-    console.log('[Polish] click captured, active:', $active, 'target:', e.target.tagName);
     if (!$active) return;
     const target = e.target;
     if (isPolishElement(target)) return;
@@ -419,7 +418,6 @@
   // NOTE: onMount doesn't fire reliably in closed Shadow DOM.
   // Initialization is done via init() called from main.js.
   export function init() {
-    console.log('[Polish] init() called, attaching listeners');
     window.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('mousemove', onMouseMove, true);
     document.addEventListener('mouseout', onMouseOut, true);
@@ -506,8 +504,8 @@
     background: rgba(59, 130, 246, 0.05);
   }
   .polish-select {
-    border: 2px solid rgba(234, 88, 12, 0.9);
-    background: rgba(234, 88, 12, 0.05);
+    border: 2px solid rgba(59, 130, 246, 1);
+    background: rgba(59, 130, 246, 0.08);
   }
   .polish-hover-label,
   .polish-select-label {
@@ -527,7 +525,7 @@
     color: #fff;
   }
   .polish-select-label {
-    background: rgba(234, 88, 12, 0.9);
+    background: rgba(59, 130, 246, 1);
     color: #fff;
   }
 

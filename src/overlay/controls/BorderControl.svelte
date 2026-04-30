@@ -31,32 +31,28 @@
   $: normalizedColor = rgbToHex(currentColorRaw);
   $: currentHex = normalizedColor === 'transparent' ? '#000000' : normalizedColor;
 
-  // True if any side has a visible border — derived from prop, but also
-  // set directly by add/remove to avoid waiting for the parent round-trip.
+  // Derive hasBorder from values prop. The `values` object reference changes
+  // when the parent passes updated props, so track it to avoid recalculating
+  // during intermediate states (where values is stale but hasBorder was set directly).
   let hasBorder = false;
-  $: hasBorder = SIDES.some(side => {
-    const w = parseNumericValue(values[`border-${side}-width`] || '0px').num;
-    const s = values[`border-${side}-style`] || 'none';
-    return w > 0 && s !== 'none';
-  });
+  let _prevValues = null;
+  $: if (values !== _prevValues) {
+    _prevValues = values;
+    hasBorder = SIDES.some(side => {
+      const w = parseNumericValue(values[`border-${side}-width`] || '0px').num;
+      const s = values[`border-${side}-style`] || 'none';
+      return w > 0 && s !== 'none';
+    });
+  }
 
   function addBorder() {
     hasBorder = true;
-    const prevSide = activeSide;
-    activeSide = 'all';
-    emitBorderEvent('change', 'border-width', '1px');
-    emitBorderEvent('change', 'border-style', 'solid');
-    emitBorderEvent('change', 'border-color', '#000000');
-    activeSide = prevSide;
+    emitAllSides('change', { 'border-width': '1px', 'border-style': 'solid', 'border-color': '#000000' });
   }
 
   function removeBorder() {
     hasBorder = false;
-    const prevSide = activeSide;
-    activeSide = 'all';
-    emitBorderEvent('change', 'border-width', '0px');
-    emitBorderEvent('change', 'border-style', 'none');
-    activeSide = prevSide;
+    emitAllSides('change', { 'border-width': '0px', 'border-style': 'none' });
   }
 
   function selectSide(side) {
@@ -64,12 +60,22 @@
     dropdownOpen = false;
   }
 
-  /** Expand a base border property (e.g. 'border-width') to per-side properties and dispatch. */
+  /** Dispatch a border property change for the active side(s). */
   function emitBorderEvent(eventName, baseBorderProperty, value) {
     const sides = activeSide === 'all' ? SIDES : [activeSide];
     for (const side of sides) {
       const perSide = baseBorderProperty.replace('border-', `border-${side}-`);
       dispatch(eventName, { property: perSide, value });
+    }
+  }
+
+  /** Dispatch border changes for all sides regardless of activeSide. */
+  function emitAllSides(eventName, props) {
+    for (const [baseProp, value] of Object.entries(props)) {
+      for (const side of SIDES) {
+        const perSide = baseProp.replace('border-', `border-${side}-`);
+        dispatch(eventName, { property: perSide, value });
+      }
     }
   }
 
