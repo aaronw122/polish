@@ -301,6 +301,23 @@
     positionedElement = element;
   }
 
+  // ── Resize handle integration ──────────────────────────────────
+  // Called by App.svelte during drag to apply live preview + debounced change
+  export function applyResize(property, value) {
+    controlValues = { ...controlValues, [property]: value };
+    normalControlValues[property] = value;
+    applyLivePreview(property, value);
+    queueChange(property, value);
+  }
+
+  // Called by App.svelte on drag end to commit the final value immediately
+  export function commitResize(property, value) {
+    controlValues = { ...controlValues, [property]: value };
+    normalControlValues[property] = value;
+    applyLivePreview(property, value);
+    commitChange(property, value);
+  }
+
   // ── Live preview + messaging ────────────────────────────────────
   function applyLivePreview(property, value) {
     if (!element) return;
