@@ -135,11 +135,7 @@
         on:input={(e) => emitHexColor(e, 'input')}
         on:change={(e) => emitHexColor(e, 'change')}
       />
-      <button class="border-remove" title="Remove border" on:click={removeBorder}>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        </svg>
-      </button>
+      <button class="border-remove" title="Remove border" on:click={removeBorder}>&minus;</button>
     </div>
 
     <!-- Style + width + side selector row -->
@@ -196,13 +192,7 @@
     </div>
   </div>
 {:else}
-  <button class="border-add" on:click={addBorder}>
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-      <line x1="5" y1="1" x2="5" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      <line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-    </svg>
-    <span>Add border</span>
-  </button>
+  <button class="border-add" on:click={addBorder}>+ Add border</button>
 {/if}
 
 <style>
