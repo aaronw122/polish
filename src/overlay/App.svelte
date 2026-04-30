@@ -505,7 +505,7 @@
   }
   .polish-select {
     border: 2px solid rgba(59, 130, 246, 1);
-    background: rgba(59, 130, 246, 0.08);
+    background: transparent;
   }
   .polish-hover-label,
   .polish-select-label {
