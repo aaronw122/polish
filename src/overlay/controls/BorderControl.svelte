@@ -31,7 +31,9 @@
   $: normalizedColor = rgbToHex(currentColorRaw);
   $: currentHex = normalizedColor === 'transparent' ? '#000000' : normalizedColor;
 
-  // True if any side has a visible border
+  // True if any side has a visible border — derived from prop, but also
+  // set directly by add/remove to avoid waiting for the parent round-trip.
+  let hasBorder = false;
   $: hasBorder = SIDES.some(side => {
     const w = parseNumericValue(values[`border-${side}-width`] || '0px').num;
     const s = values[`border-${side}-style`] || 'none';
@@ -39,6 +41,7 @@
   });
 
   function addBorder() {
+    hasBorder = true;
     const prevSide = activeSide;
     activeSide = 'all';
     emitBorderEvent('change', 'border-width', '1px');
@@ -48,6 +51,7 @@
   }
 
   function removeBorder() {
+    hasBorder = false;
     const prevSide = activeSide;
     activeSide = 'all';
     emitBorderEvent('change', 'border-width', '0px');
