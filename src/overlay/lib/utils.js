@@ -169,6 +169,27 @@ export function formatSpacingValue(rawInput) {
 }
 
 /**
+ * Get the natural/intrinsic aspect ratio for replaced elements and SVGs.
+ * Returns width/height ratio, or null to fall back to rendered dimensions.
+ */
+export function getNaturalAspectRatio(el) {
+  if (el.naturalWidth && el.naturalHeight) {
+    return el.naturalWidth / el.naturalHeight;
+  }
+  const tag = el.tagName.toUpperCase();
+  if (tag === 'SVG') {
+    const vb = el.getAttribute('viewBox');
+    if (vb) {
+      const parts = vb.split(/[\s,]+/).map(Number);
+      const w = parts[2];
+      const h = parts[3];
+      if (w && h) return w / h;
+    }
+  }
+  return null;
+}
+
+/**
  * Build a change message for the WebSocket protocol.
  */
 export function buildChangeMessage(sourceData, property, value) {

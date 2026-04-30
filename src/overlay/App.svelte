@@ -3,6 +3,7 @@
   import {
     active, hoveredElement, selectedElement,
     sourceData, panelVisible, shortcutHintShown,
+    undoStack,
   } from './stores/state.js';
   import {
     isPolishElement, formatLabel, describeElement,
@@ -147,6 +148,7 @@
       $selectedElement = null;
       $hoveredElement = null;
       selectedRect = null;
+      $undoStack = [];
     }
   }
 
@@ -257,6 +259,31 @@
     if ($active && $selectedElement && e.key === 'Escape') {
       e.preventDefault();
       deselectEl();
+    }
+
+    // Cmd+Z / Ctrl+Z: undo last resize
+    if ($active && (e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+      if ($undoStack.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        const stack = [...$undoStack];
+        const entry = stack.pop();
+        $undoStack = stack;
+
+        if (entry.element.isConnected && panelComponent) {
+          for (const [prop, oldValue] of Object.entries(entry.properties)) {
+            panelComponent.commitResize(prop, oldValue);
+          }
+          // Update selection visuals to reflect restored dimensions
+          if (entry.element === $selectedElement) {
+            const rect = entry.element.getBoundingClientRect();
+            selectedRect = rect;
+            if (selectLabel) selectLabel.textContent = formatLabel(entry.element);
+            positionBox(selectBox, selectLabel, rect);
+            positionInfoPanel(rect);
+          }
+        }
+      }
     }
 
     // Tab / Shift+Tab: cycle to sibling elements
@@ -427,12 +454,32 @@
     }
   }
 
+  const UNDO_STACK_MAX = 20;
+
   // ── Resize handle events ─────────────────────────────────────────
   function onResizeStart() {
     draggingResize = true;
     // Hide hover box during resize
     hideBox(hoverBox, hoverLabel);
     $hoveredElement = null;
+
+    // Snapshot current values for undo before the resize begins
+    if (panelComponent && $selectedElement) {
+      const snapshot = panelComponent.getCurrentValues([
+        'width', 'height', 'margin-top', 'margin-left', 'display',
+      ]);
+      $undoStack = [
+        ...$undoStack.slice(-(UNDO_STACK_MAX - 1)),
+        { properties: snapshot, element: $selectedElement },
+      ];
+    }
+  }
+
+  function onInlinePromote(e) {
+    const { property, value } = e.detail;
+    if (panelComponent) {
+      panelComponent.commitResize(property, value);
+    }
   }
 
   function onResize(e) {
@@ -562,6 +609,7 @@
     on:resizestart={onResizeStart}
     on:resize={onResize}
     on:resizeend={onResizeEnd}
+    on:inlinepromote={onInlinePromote}
   />
 {/if}
 
