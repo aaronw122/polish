@@ -1,8 +1,8 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS, SIZE_CONTROLS, isTextElement, computeCollapsedSections } from './lib/schema.js';
   import {
-    rgbToHex, parseNumericValue, clampValue, cssToCamel,
+    parseNumericValue, cssToCamel,
     computePanelPosition, DEBOUNCE_MS,
   } from './lib/utils.js';
   import { send } from './lib/socket.js';
@@ -71,38 +71,41 @@
     updateFromSource($sourceData);
   }
 
+  // ── Helpers: pseudo-state control switching ─────────────────────
+  function pickProperties(sourceProperties = {}, propertyNames) {
+    const picked = {};
+    for (const property of propertyNames) {
+      if (property in sourceProperties) picked[property] = sourceProperties[property];
+    }
+    return picked;
+  }
+
+  function applyNormalControlState() {
+    controlValues = { ...normalControlValues };
+    spacingValues = { ...normalSpacingValues };
+    borderValues = { ...normalBorderValues };
+    layoutValues = { ...normalLayoutValues };
+  }
+
+  function applyPseudoControlState(pseudoProperties) {
+    controlValues = { ...normalControlValues, ...pseudoProperties };
+    borderValues = {
+      ...normalBorderValues,
+      ...pickProperties(pseudoProperties, BORDER_PROPS),
+    };
+    layoutValues = {
+      ...normalLayoutValues,
+      ...pickProperties(pseudoProperties, LAYOUT_PROPS),
+    };
+  }
+
   // ── Reactivity: switch control values when activeState changes ──
   $: {
     if (activeState === 'normal') {
-      controlValues = { ...normalControlValues };
-      spacingValues = { ...normalSpacingValues };
-      borderValues = { ...normalBorderValues };
-      layoutValues = { ...normalLayoutValues };
+      applyNormalControlState();
     } else {
-      const src = $sourceData;
-      const pseudoState = src && src.pseudoStates && src.pseudoStates[activeState];
-      if (pseudoState && pseudoState.properties) {
-        // Start from normal values, overlay the pseudo-state's properties
-        controlValues = { ...normalControlValues, ...pseudoState.properties };
-
-        // Overlay border props from pseudo-state
-        const pseudoBorder = {};
-        BORDER_PROPS.forEach(prop => {
-          if (prop in pseudoState.properties) {
-            pseudoBorder[prop] = pseudoState.properties[prop];
-          }
-        });
-        borderValues = { ...normalBorderValues, ...pseudoBorder };
-
-        // Overlay layout props from pseudo-state
-        const pseudoLayout = {};
-        LAYOUT_PROPS.forEach(prop => {
-          if (prop in pseudoState.properties) {
-            pseudoLayout[prop] = pseudoState.properties[prop];
-          }
-        });
-        layoutValues = { ...normalLayoutValues, ...pseudoLayout };
-      }
+      const pseudoProperties = $sourceData?.pseudoStates?.[activeState]?.properties;
+      if (pseudoProperties) applyPseudoControlState(pseudoProperties);
     }
   }
 
@@ -332,85 +335,47 @@
     }
   }
 
-  function debounceSendChange(property, value) {
-    if (debounceTimers[property]) {
-      clearTimeout(debounceTimers[property]);
-    }
+  function clearDebounceTimer(property) {
+    if (!debounceTimers[property]) return;
+    clearTimeout(debounceTimers[property]);
+    delete debounceTimers[property];
+  }
+
+  function queueChange(property, value) {
+    clearDebounceTimer(property);
     debounceTimers[property] = setTimeout(() => {
       delete debounceTimers[property];
       sendChangeMessage(property, value);
     }, DEBOUNCE_MS);
   }
 
-  function sendChangeImmediate(property, value) {
-    if (debounceTimers[property]) {
-      clearTimeout(debounceTimers[property]);
-      delete debounceTimers[property];
-    }
+  function commitChange(property, value) {
+    clearDebounceTimer(property);
     sendChangeMessage(property, value);
+  }
+
+  function getChangeTarget(src, property) {
+    if (activeState !== 'normal') {
+      const pseudoState = (src.pseudoStates || {})[activeState];
+      if (pseudoState) {
+        return { file: pseudoState.file, selector: pseudoState.selector, line: pseudoState.line || undefined, styleType: 'css' };
+      }
+      const baseSelector = src.selector.replace(/:[a-z-]+/g, '');
+      return { file: src.file, selector: baseSelector + ':' + activeState, styleType: 'css' };
+    }
+
+    const cssRule = src.cssRule;
+    if (src.styleType === 'inline' && cssRule?.properties && property in cssRule.properties) {
+      return { file: cssRule.file, selector: cssRule.selector, line: cssRule.line || undefined, styleType: 'css' };
+    }
+
+    return { file: src.file, selector: src.selector, line: src.line || undefined, styleType: src.styleType || undefined };
   }
 
   function sendChangeMessage(property, value) {
     const src = $sourceData;
-    if (!src || !src.selector) return;
-
-    // Inline preview is kept alive until CSS actually reloads —
-    // App.svelte calls clearPreviews() after the stylesheet swaps.
-
-    // If editing a pseudo state (:hover, :focus, :active), route to that rule
-    if (activeState !== 'normal') {
-      const pseudoState = (src.pseudoStates || {})[activeState];
-      if (pseudoState) {
-        send({
-          type: 'change',
-          file: pseudoState.file,
-          selector: pseudoState.selector,
-          property: property,
-          value: value,
-          line: pseudoState.line || undefined,
-          styleType: 'css',
-        });
-        return;
-      }
-      // No existing rule for this state — create one by appending pseudo-class
-      // to the base selector (e.g., `.btn-primary` → `.btn-primary:hover`)
-      const baseSelector = src.selector.replace(/:[a-z-]+/g, ''); // strip any pseudo
-      send({
-        type: 'change',
-        file: src.file,
-        selector: baseSelector + ':' + activeState,
-        property: property,
-        value: value,
-        styleType: 'css',
-      });
-      return;
-    }
-
-    // When the primary match is inline but the property exists in a CSS rule,
-    // route the change to the CSS rule instead of the inline style.
-    const cssRule = src.cssRule;
-    if (src.styleType === 'inline' && cssRule && cssRule.properties && property in cssRule.properties) {
-      send({
-        type: 'change',
-        file: cssRule.file,
-        selector: cssRule.selector,
-        property: property,
-        value: value,
-        line: cssRule.line || undefined,
-        styleType: 'css',
-      });
-      return;
-    }
-
-    send({
-      type: 'change',
-      file: src.file,
-      selector: src.selector,
-      property: property,
-      value: value,
-      line: src.line || undefined,
-      styleType: src.styleType || undefined,
-    });
+    if (!src?.selector) return;
+    send({ type: 'change', ...getChangeTarget(src, property), property, value });
   }
 
   // ── Control event handlers ──────────────────────────────────────
@@ -420,7 +385,7 @@
     normalControlValues[property] = value;
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onControlChange(e) {
@@ -429,7 +394,7 @@
     normalControlValues[property] = value;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
   }
 
   function onSpacingInput(e) {
@@ -437,14 +402,14 @@
     spacingValues[property] = e.detail.raw || value.replace(/px$/, '');
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onSpacingChange(e) {
     const { property, value } = e.detail;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
   }
 
   function onBorderInput(e) {
@@ -452,7 +417,7 @@
     borderValues[property] = value;
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onBorderChange(e) {
@@ -460,7 +425,7 @@
     borderValues[property] = value;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
   }
 
   function onLayoutInput(e) {
@@ -468,7 +433,7 @@
     layoutValues[property] = value;
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onLayoutChange(e) {
@@ -476,7 +441,7 @@
     layoutValues[property] = value;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
     ensureFlexDisplay();
   }
 
@@ -484,7 +449,7 @@
     if (layoutDisplayValue !== 'flex' && layoutDisplayValue !== 'inline-flex') {
       layoutDisplayValue = 'flex';
       applyLivePreview('display', 'flex');
-      sendChangeImmediate('display', 'flex');
+      commitChange('display', 'flex');
     }
   }
 

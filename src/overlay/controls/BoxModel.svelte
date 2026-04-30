@@ -7,35 +7,26 @@
 
   const dispatch = createEventDispatcher();
 
-  function getVal(prefix, side) {
+  function getSpacingValue(prefix, side) {
     return values[`${prefix}-${side}`] || '0';
   }
 
-  function onInput(e, prop) {
+  function emitSpacingEvent(e, prop, eventName) {
     const fullVal = formatSpacingValue(e.target.value);
-    dispatch('input', { property: prop, value: fullVal, raw: e.target.value });
+    const detail = eventName === 'input'
+      ? { property: prop, value: fullVal, raw: e.target.value }
+      : { property: prop, value: fullVal };
+    dispatch(eventName, detail);
 
     if (uniformMode) {
       const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
       ['top', 'right', 'bottom', 'left'].forEach(side => {
         const sibProp = `${prefix}-${side}`;
         if (sibProp !== prop) {
-          dispatch('input', { property: sibProp, value: fullVal, raw: e.target.value });
-        }
-      });
-    }
-  }
-
-  function onChange(e, prop) {
-    const fullVal = formatSpacingValue(e.target.value);
-    dispatch('change', { property: prop, value: fullVal });
-
-    if (uniformMode) {
-      const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
-      ['top', 'right', 'bottom', 'left'].forEach(side => {
-        const sibProp = `${prefix}-${side}`;
-        if (sibProp !== prop) {
-          dispatch('change', { property: sibProp, value: fullVal });
+          const sibDetail = eventName === 'input'
+            ? { property: sibProp, value: fullVal, raw: e.target.value }
+            : { property: sibProp, value: fullVal };
+          dispatch(eventName, sibDetail);
         }
       });
     }
@@ -47,55 +38,55 @@
   <div class="layer margin-layer">
     <span class="layer-label">margin</span>
     <div class="side top">
-      <input value={getVal('margin','top')} on:input={(e) => onInput(e,'margin-top')} on:change={(e) => onChange(e,'margin-top')} />
+      <input value={getSpacingValue('margin','top')} on:input={(e) => emitSpacingEvent(e,'margin-top','input')} on:change={(e) => emitSpacingEvent(e,'margin-top','change')} />
     </div>
     <div class="side left">
-      <input value={getVal('margin','left')} on:input={(e) => onInput(e,'margin-left')} on:change={(e) => onChange(e,'margin-left')} />
+      <input value={getSpacingValue('margin','left')} on:input={(e) => emitSpacingEvent(e,'margin-left','input')} on:change={(e) => emitSpacingEvent(e,'margin-left','change')} />
     </div>
     <div class="inner">
       <!-- Border layer -->
       <div class="layer border-layer">
         <span class="layer-label">border</span>
         <div class="side top">
-          <input value={getVal('border','top') || '0'} readonly tabindex="-1" />
+          <input value={getSpacingValue('border','top') || '0'} readonly tabindex="-1" />
         </div>
         <div class="side left">
-          <input value={getVal('border','left') || '0'} readonly tabindex="-1" />
+          <input value={getSpacingValue('border','left') || '0'} readonly tabindex="-1" />
         </div>
         <div class="inner">
           <!-- Padding layer -->
           <div class="layer padding-layer">
             <span class="layer-label">padding</span>
             <div class="side top">
-              <input value={getVal('padding','top')} on:input={(e) => onInput(e,'padding-top')} on:change={(e) => onChange(e,'padding-top')} />
+              <input value={getSpacingValue('padding','top')} on:input={(e) => emitSpacingEvent(e,'padding-top','input')} on:change={(e) => emitSpacingEvent(e,'padding-top','change')} />
             </div>
             <div class="side left">
-              <input value={getVal('padding','left')} on:input={(e) => onInput(e,'padding-left')} on:change={(e) => onChange(e,'padding-left')} />
+              <input value={getSpacingValue('padding','left')} on:input={(e) => emitSpacingEvent(e,'padding-left','input')} on:change={(e) => emitSpacingEvent(e,'padding-left','change')} />
             </div>
             <div class="inner">
               <div class="content-box">content</div>
             </div>
             <div class="side right">
-              <input value={getVal('padding','right')} on:input={(e) => onInput(e,'padding-right')} on:change={(e) => onChange(e,'padding-right')} />
+              <input value={getSpacingValue('padding','right')} on:input={(e) => emitSpacingEvent(e,'padding-right','input')} on:change={(e) => emitSpacingEvent(e,'padding-right','change')} />
             </div>
             <div class="side bottom">
-              <input value={getVal('padding','bottom')} on:input={(e) => onInput(e,'padding-bottom')} on:change={(e) => onChange(e,'padding-bottom')} />
+              <input value={getSpacingValue('padding','bottom')} on:input={(e) => emitSpacingEvent(e,'padding-bottom','input')} on:change={(e) => emitSpacingEvent(e,'padding-bottom','change')} />
             </div>
           </div>
         </div>
         <div class="side right">
-          <input value={getVal('border','right') || '0'} readonly tabindex="-1" />
+          <input value={getSpacingValue('border','right') || '0'} readonly tabindex="-1" />
         </div>
         <div class="side bottom">
-          <input value={getVal('border','bottom') || '0'} readonly tabindex="-1" />
+          <input value={getSpacingValue('border','bottom') || '0'} readonly tabindex="-1" />
         </div>
       </div>
     </div>
     <div class="side right">
-      <input value={getVal('margin','right')} on:input={(e) => onInput(e,'margin-right')} on:change={(e) => onChange(e,'margin-right')} />
+      <input value={getSpacingValue('margin','right')} on:input={(e) => emitSpacingEvent(e,'margin-right','input')} on:change={(e) => emitSpacingEvent(e,'margin-right','change')} />
     </div>
     <div class="side bottom">
-      <input value={getVal('margin','bottom')} on:input={(e) => onInput(e,'margin-bottom')} on:change={(e) => onChange(e,'margin-bottom')} />
+      <input value={getSpacingValue('margin','bottom')} on:input={(e) => emitSpacingEvent(e,'margin-bottom','input')} on:change={(e) => emitSpacingEvent(e,'margin-bottom','change')} />
     </div>
   </div>
 </div>
