@@ -414,8 +414,10 @@
 
   function onBorderInput(e) {
     const { property, value } = e.detail;
-    borderValues[property] = value;
-    borderValues = borderValues;
+    borderValues = { ...borderValues, [property]: value };
+    if (activeState === 'normal') {
+      normalBorderValues = { ...normalBorderValues, [property]: value };
+    }
 
     applyLivePreview(property, value);
     queueChange(property, value);
@@ -423,8 +425,10 @@
 
   function onBorderChange(e) {
     const { property, value } = e.detail;
-    borderValues[property] = value;
-    borderValues = borderValues;
+    borderValues = { ...borderValues, [property]: value };
+    if (activeState === 'normal') {
+      normalBorderValues = { ...normalBorderValues, [property]: value };
+    }
 
     applyLivePreview(property, value);
     commitChange(property, value);
