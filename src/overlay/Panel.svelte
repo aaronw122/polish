@@ -415,6 +415,7 @@
   function onBorderInput(e) {
     const { property, value } = e.detail;
     borderValues[property] = value;
+    borderValues = borderValues;
 
     applyLivePreview(property, value);
     queueChange(property, value);
@@ -423,6 +424,7 @@
   function onBorderChange(e) {
     const { property, value } = e.detail;
     borderValues[property] = value;
+    borderValues = borderValues;
 
     applyLivePreview(property, value);
     commitChange(property, value);
