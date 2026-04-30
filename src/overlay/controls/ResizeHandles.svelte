@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher, onDestroy } from 'svelte';
+  import { getNaturalAspectRatio } from '../lib/utils.js';
 
   export let rect = null;
   export let active = false;
@@ -75,6 +76,14 @@
 
     if (!rect || !element) return;
 
+    const computed = window.getComputedStyle(element);
+
+    // Auto-promote inline elements to inline-block so resize takes effect
+    const display = computed.display;
+    if (display === 'inline') {
+      dispatch('inlinepromote', { property: 'display', value: 'inline-block' });
+    }
+
     dragging = true;
     dragHandle = handle;
     startMouseX = e.clientX;
@@ -83,10 +92,13 @@
     startHeight = rect.height;
     startLeft = rect.left;
     startTop = rect.top;
-    aspectRatio = startWidth / startHeight;
+
+    // Use natural/intrinsic aspect ratio for replaced elements and SVGs
+    const naturalRatio = getNaturalAspectRatio(element);
+    aspectRatio = naturalRatio || (startWidth / startHeight);
 
     // Detect flow positioning for margin adjustments
-    const pos = window.getComputedStyle(element).position;
+    const pos = computed.position;
     isFlowPositioned = (pos === 'static' || pos === 'relative');
 
     // Lock cursor on body during drag

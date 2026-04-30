@@ -310,6 +310,17 @@
     queueChange(property, value);
   }
 
+  // Return current controlValues for given property names (for undo snapshots)
+  export function getCurrentValues(properties) {
+    const result = {};
+    for (const prop of properties) {
+      if (prop in controlValues) {
+        result[prop] = controlValues[prop];
+      }
+    }
+    return result;
+  }
+
   // Called by App.svelte on drag end to commit the final value immediately
   export function commitResize(property, value) {
     controlValues = { ...controlValues, [property]: value };

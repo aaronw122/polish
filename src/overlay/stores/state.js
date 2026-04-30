@@ -25,3 +25,10 @@ export const shortcutHintShown = writable(false);
 
 /** Whether uniform spacing mode is on (lock icon). */
 export const uniformMode = writable(false);
+
+/**
+ * Undo stack for resize operations.
+ * Each entry: { properties: { [cssProperty]: authoredValue }, element: DOMElement }
+ * Capped at 20 entries.
+ */
+export const undoStack = writable([]);
