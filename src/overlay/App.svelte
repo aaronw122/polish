@@ -501,7 +501,7 @@
   }
   .polish-hover {
     border: 2px solid rgba(59, 130, 246, 0.8);
-    background: rgba(59, 130, 246, 0.05);
+    background: transparent;
   }
   .polish-select {
     border: 2px solid rgba(59, 130, 246, 1);
