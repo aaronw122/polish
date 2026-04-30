@@ -33,30 +33,11 @@
     return String(num);
   }
 
-  function onSliderInput(e) {
-    numVal = parseFloat(e.target.value);
+  function emitNumericChange(e, eventName, shouldClamp) {
+    const raw = parseFloat(e.target.value);
+    numVal = shouldClamp ? clampValue(raw, min, max) : raw;
     const full = getFullValue(numVal, currentUnit);
-    dispatch('input', { property, value: full });
-  }
-
-  function onSliderChange(e) {
-    numVal = parseFloat(e.target.value);
-    const full = getFullValue(numVal, currentUnit);
-    dispatch('change', { property, value: full });
-  }
-
-  function onNumInput(e) {
-    const clamped = clampValue(parseFloat(e.target.value), min, max);
-    numVal = clamped;
-    const full = getFullValue(clamped, currentUnit);
-    dispatch('input', { property, value: full });
-  }
-
-  function onNumChange(e) {
-    const clamped = clampValue(parseFloat(e.target.value), min, max);
-    numVal = clamped;
-    const full = getFullValue(clamped, currentUnit);
-    dispatch('change', { property, value: full });
+    dispatch(eventName, { property, value: full });
   }
 
   function onUnitChange(e) {
@@ -81,8 +62,8 @@
       {max}
       {step}
       value={numVal}
-      on:input={onSliderInput}
-      on:change={onSliderChange}
+      on:input={(e) => emitNumericChange(e, 'input', false)}
+      on:change={(e) => emitNumericChange(e, 'change', false)}
     />
     <input
       type="number"
@@ -92,8 +73,8 @@
       {max}
       {step}
       value={numVal}
-      on:input={onNumInput}
-      on:change={onNumChange}
+      on:input={(e) => emitNumericChange(e, 'input', true)}
+      on:change={(e) => emitNumericChange(e, 'change', true)}
     />
     {#if unitOptions.length > 0}
       <select

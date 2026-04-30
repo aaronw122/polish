@@ -774,7 +774,7 @@ describe('detectPseudoClasses', () => {
 });
 
 describe('Pseudo-classes in resolved rules', () => {
-  it('includes pseudo-class info in matched rules', () => {
+  it('separates pseudo-class rules into pseudoStates', () => {
     const dir = createTempProject({
       'styles.css': `
 .btn { color: blue; }
@@ -790,24 +790,18 @@ describe('Pseudo-classes in resolved rules', () => {
       inlineStyles: '',
     });
 
-    // All 3 rules match (key selector is .btn in each case)
-    assert.equal(result.matchedRules.length, 3);
+    // Base rules only — pseudo rules are separated out
+    assert.equal(result.matchedRules.length, 1);
+    assert.equal(result.matchedRules[0].selector, '.btn');
 
-    const hoverRule = result.matchedRules.find(
-      (r) => r.pseudoClasses && r.pseudoClasses.includes(':hover')
-    );
-    assert.ok(hoverRule);
-    assert.equal(hoverRule.selector, '.btn:hover');
+    // Pseudo-class rules appear in pseudoStates (keys include the colon)
+    assert.ok(result.pseudoStates[':hover']);
+    assert.equal(result.pseudoStates[':hover'].selector, '.btn:hover');
+    assert.deepEqual(result.pseudoStates[':hover'].properties, { color: 'red' });
 
-    const focusRule = result.matchedRules.find(
-      (r) => r.pseudoClasses && r.pseudoClasses.includes(':focus')
-    );
-    assert.ok(focusRule);
-
-    const normalRule = result.matchedRules.find(
-      (r) => r.pseudoClasses && r.pseudoClasses.length === 0
-    );
-    assert.ok(normalRule);
+    assert.ok(result.pseudoStates[':focus']);
+    assert.equal(result.pseudoStates[':focus'].selector, '.btn:focus');
+    assert.deepEqual(result.pseudoStates[':focus'].properties, { outline: '2px solid blue' });
 
     cleanupDir(dir);
   });

@@ -2,6 +2,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { rgbToHex, parseNumericValue } from '../lib/utils.js';
   import PickrSwatch from './PickrSwatch.svelte';
+  import { BORDER_SIDE_ICONS } from './borderSideIcons.js';
 
   export let values = {};
 
@@ -70,27 +71,13 @@
     emitBorderEvent('change', 'border-style', e.target.value);
   }
 
-  function onHexInput(e) {
+  function emitHexColor(e, eventName) {
     const nextColor = e.target.value.trim();
     if (HEX_RE.test(nextColor)) {
-      emitBorderEvent('input', 'border-color', nextColor);
-    }
-  }
-  function onHexChange(e) {
-    const nextColor = e.target.value.trim();
-    if (HEX_RE.test(nextColor)) {
-      emitBorderEvent('change', 'border-color', nextColor);
+      emitBorderEvent(eventName, 'border-color', nextColor);
     }
   }
 
-  // SVG icons: 14x14, solid line = active side, dashed = inactive sides
-  const SIDE_ICONS = {
-    all:    '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="1.5" width="11" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>',
-    top:    '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="1.5" y1="1.5" x2="12.5" y2="1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="1.5" y1="12.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="1.5" x2="1.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="12.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/></svg>',
-    bottom: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="1.5" y1="12.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="1.5" y1="1.5" x2="12.5" y2="1.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="1.5" x2="1.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="12.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/></svg>',
-    left:   '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="1.5" y1="1.5" x2="1.5" y2="12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="1.5" y1="1.5" x2="12.5" y2="1.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="12.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="12.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/></svg>',
-    right:  '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="12.5" y1="1.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="1.5" y1="1.5" x2="12.5" y2="1.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="12.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/><line x1="1.5" y1="1.5" x2="1.5" y2="12.5" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 1.5" opacity="0.35"/></svg>',
-  };
 
   function handleClickOutside(e) {
     if (dropdownOpen && dropdownEl && !dropdownEl.contains(e.target)) {
@@ -120,8 +107,8 @@
       placeholder="#000000"
       maxlength="7"
       value={currentHex}
-      on:input={onHexInput}
-      on:change={onHexChange}
+      on:input={(e) => emitHexColor(e, 'input')}
+      on:change={(e) => emitHexColor(e, 'change')}
     />
   </div>
 
@@ -153,7 +140,7 @@
         title="Border side: {activeSide}"
         on:click={() => dropdownOpen = !dropdownOpen}
       >
-        <span class="side-trigger-icon">{@html SIDE_ICONS[activeSide]}</span>
+        <span class="side-trigger-icon">{@html BORDER_SIDE_ICONS[activeSide]}</span>
       </button>
 
       {#if dropdownOpen}
@@ -169,7 +156,7 @@
               {:else}
                 <span class="side-check"></span>
               {/if}
-              <span class="side-icon">{@html SIDE_ICONS[opt.value]}</span>
+              <span class="side-icon">{@html BORDER_SIDE_ICONS[opt.value]}</span>
               <span class="side-label">{opt.label}</span>
             </button>
           {/each}

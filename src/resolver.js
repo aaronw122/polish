@@ -656,8 +656,34 @@ export class Resolver {
     // 5. Annotate each rule's properties with override/important status
     annotateMatchedRules(matchedRules, propertyWinner);
 
-    // 6. Shape the response: primary match is the highest-specificity active rule
-    const primary = matchedRules[matchedRules.length - 1] || null;
+    // 6. Shape the response: primary match is the highest-specificity active rule.
+    //    Skip universal (*) selectors as write targets — edits to * affect every
+    //    element on the page.  Fall back to the next most-specific rule, or
+    //    synthesize a selector from the element's tag/class/id so the writer
+    //    creates a new, scoped rule instead.
+    let primary = null;
+    for (let i = matchedRules.length - 1; i >= 0; i--) {
+      if (matchedRules[i].selector !== '*') {
+        primary = matchedRules[i];
+        break;
+      }
+    }
+
+    if (!primary && matchedRules.length > 0) {
+      // Every matched rule is *  — generate a specific selector
+      const syntheticSelector = element.id
+        ? `#${element.id}`
+        : element.classes.length > 0
+          ? `${element.tag}.${element.classes[0]}`
+          : element.tag;
+      const starRule = matchedRules[matchedRules.length - 1];
+      primary = {
+        ...starRule,
+        selector: syntheticSelector,
+        properties: {},   // new rule, no existing properties
+        line: undefined,  // writer will append a new rule
+      };
+    }
 
     // 7. Determine styleType based on the primary match
     let styleType = null;

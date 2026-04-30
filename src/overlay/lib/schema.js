@@ -27,19 +27,13 @@ export const CONTROL_SCHEMA = [
     { property: 'background-color', type: 'color', label: 'Background' },
     { property: 'color',            type: 'color', label: 'Text' },
   ]},
-  { section: 'Typography', id: 'typography', controls: [
+  { section: 'Text', id: 'text', controls: [
     { property: 'font-family', type: 'select', label: 'Family',
       options: WEB_SAFE_FONTS.map(f => ({ value: f, label: f })) },
     { property: 'font-size', type: 'slider', label: 'Size',
       min: 8, max: 72, step: 1, units: ['px', 'rem', 'em'] },
     { property: 'font-weight', type: 'select', label: 'Weight',
       options: FONT_WEIGHTS },
-  ]},
-  { section: 'Size', id: 'size', controls: [
-    { property: 'width',  type: 'slider', label: 'Width',
-      min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vw'] },
-    { property: 'height', type: 'slider', label: 'Height',
-      min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vh'] },
   ]},
   // Spacing is built separately (box model visualization)
   { section: 'Effects', id: 'effects', controls: [
@@ -72,4 +66,59 @@ export const BORDER_PROPS = [
  */
 export const LAYOUT_PROPS = [
   'flex-direction', 'align-items', 'justify-content', 'gap',
+  'width', 'height',
 ];
+
+/**
+ * Size controls displayed inside the Layout section (slider-driven).
+ */
+export const SIZE_CONTROLS = [
+  { property: 'width',  type: 'slider', label: 'Width',
+    min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vw'] },
+  { property: 'height', type: 'slider', label: 'Height',
+    min: 0, max: 2000, step: 1, units: ['px', '%', 'auto', 'vh'] },
+];
+
+/**
+ * Element classification — text elements get Text section prioritized.
+ */
+const TEXT_ELEMENTS = new Set([
+  'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'a',
+  'label', 'li', 'blockquote', 'em', 'strong', 'small',
+  'code', 'pre', 'q', 'cite', 'figcaption', 'dt', 'dd',
+  'th', 'td', 'caption', 'abbr', 'time', 'mark', 'b', 'i', 'u', 's',
+  'sub', 'sup', 'button', 'legend', 'summary',
+]);
+
+export function isTextElement(tagName) {
+  return TEXT_ELEMENTS.has(tagName.toLowerCase());
+}
+
+/**
+ * Map of section id → CSS property names used by that section.
+ * Used by auto-collapse to determine if a section has authored values.
+ */
+export const SECTION_PROPS_MAP = {
+  text: CONTROL_SCHEMA.find(s => s.id === 'text').controls.map(c => c.property),
+  layout: [...LAYOUT_PROPS],
+  spacing: [...SPACING_PROPS],
+  border: [...BORDER_PROPS],
+  colors: CONTROL_SCHEMA.find(s => s.id === 'colors').controls.map(c => c.property),
+  effects: CONTROL_SCHEMA.find(s => s.id === 'effects').controls.map(c => c.property),
+};
+
+/**
+ * Compute collapsed state for each section based on authored properties.
+ * Sections with no authored properties start collapsed (true);
+ * those with any authored property start expanded (false).
+ */
+export function computeCollapsedSections(sourceProperties, sectionIds) {
+  const result = {};
+  const authored = sourceProperties || {};
+  for (const id of sectionIds) {
+    const props = SECTION_PROPS_MAP[id] || [];
+    const hasAuthored = props.some(prop => prop in authored);
+    result[id] = !hasAuthored;
+  }
+  return result;
+}

@@ -1,8 +1,8 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
-  import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS } from './lib/schema.js';
+  import { createEventDispatcher } from 'svelte';
+  import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS, SIZE_CONTROLS, isTextElement, computeCollapsedSections } from './lib/schema.js';
   import {
-    rgbToHex, parseNumericValue, clampValue, cssToCamel,
+    parseNumericValue, cssToCamel,
     computePanelPosition, DEBOUNCE_MS,
   } from './lib/utils.js';
   import { send } from './lib/socket.js';
@@ -60,6 +60,7 @@
   $: if (element && element !== initializedElement) {
     initializedElement = element;
     activeState = 'normal';
+    collapsedSections = {};
     initFromElement(element);
     positionNearElement(element);
     positionedElement = element;
@@ -70,38 +71,41 @@
     updateFromSource($sourceData);
   }
 
+  // ── Helpers: pseudo-state control switching ─────────────────────
+  function pickProperties(sourceProperties = {}, propertyNames) {
+    const picked = {};
+    for (const property of propertyNames) {
+      if (property in sourceProperties) picked[property] = sourceProperties[property];
+    }
+    return picked;
+  }
+
+  function applyNormalControlState() {
+    controlValues = { ...normalControlValues };
+    spacingValues = { ...normalSpacingValues };
+    borderValues = { ...normalBorderValues };
+    layoutValues = { ...normalLayoutValues };
+  }
+
+  function applyPseudoControlState(pseudoProperties) {
+    controlValues = { ...normalControlValues, ...pseudoProperties };
+    borderValues = {
+      ...normalBorderValues,
+      ...pickProperties(pseudoProperties, BORDER_PROPS),
+    };
+    layoutValues = {
+      ...normalLayoutValues,
+      ...pickProperties(pseudoProperties, LAYOUT_PROPS),
+    };
+  }
+
   // ── Reactivity: switch control values when activeState changes ──
   $: {
     if (activeState === 'normal') {
-      controlValues = { ...normalControlValues };
-      spacingValues = { ...normalSpacingValues };
-      borderValues = { ...normalBorderValues };
-      layoutValues = { ...normalLayoutValues };
+      applyNormalControlState();
     } else {
-      const src = $sourceData;
-      const pseudoState = src && src.pseudoStates && src.pseudoStates[activeState];
-      if (pseudoState && pseudoState.properties) {
-        // Start from normal values, overlay the pseudo-state's properties
-        controlValues = { ...normalControlValues, ...pseudoState.properties };
-
-        // Overlay border props from pseudo-state
-        const pseudoBorder = {};
-        BORDER_PROPS.forEach(prop => {
-          if (prop in pseudoState.properties) {
-            pseudoBorder[prop] = pseudoState.properties[prop];
-          }
-        });
-        borderValues = { ...normalBorderValues, ...pseudoBorder };
-
-        // Overlay layout props from pseudo-state
-        const pseudoLayout = {};
-        LAYOUT_PROPS.forEach(prop => {
-          if (prop in pseudoState.properties) {
-            pseudoLayout[prop] = pseudoState.properties[prop];
-          }
-        });
-        layoutValues = { ...normalLayoutValues, ...pseudoLayout };
-      }
+      const pseudoProperties = $sourceData?.pseudoStates?.[activeState]?.properties;
+      if (pseudoProperties) applyPseudoControlState(pseudoProperties);
     }
   }
 
@@ -136,6 +140,11 @@
         }
       }
     }
+    // Size controls (width/height) — now in Layout section but use controlValues
+    for (const def of SIZE_CONTROLS) {
+      vals[def.property] = computed.getPropertyValue(def.property);
+    }
+
     controlValues = vals;
     normalControlValues = { ...vals };
 
@@ -167,8 +176,24 @@
 
   }
 
+  // All possible section ids for collapse computation
+  const ALL_SECTION_IDS = ['text', 'layout', 'spacing', 'border', 'colors', 'effects'];
+
   // ── Update panel from authored source data ──────────────────────
   function updateFromSource(src) {
+    // Auto-collapse sections without authored CSS — but never re-collapse
+    // a section the user has already opened
+    const autoCollapsed = computeCollapsedSections(src.properties, ALL_SECTION_IDS);
+    for (const id of ALL_SECTION_IDS) {
+      if (autoCollapsed[id]) {
+        // Only collapse if not currently expanded (don't override user toggle)
+        if (collapsedSections[id] === undefined) collapsedSections[id] = true;
+      } else {
+        // Section has authored values — expand it
+        collapsedSections[id] = false;
+      }
+    }
+    collapsedSections = collapsedSections;
     if (src.properties) {
       for (const [prop, val] of Object.entries(src.properties)) {
         const def = findControlDef(prop);
@@ -247,6 +272,10 @@
         if (c.property === property) return c;
       }
     }
+    // Also check SIZE_CONTROLS (width/height in Layout section)
+    for (const c of SIZE_CONTROLS) {
+      if (c.property === property) return c;
+    }
     return null;
   }
 
@@ -306,102 +335,66 @@
     }
   }
 
-  function debounceSendChange(property, value) {
-    if (debounceTimers[property]) {
-      clearTimeout(debounceTimers[property]);
-    }
+  function clearDebounceTimer(property) {
+    if (!debounceTimers[property]) return;
+    clearTimeout(debounceTimers[property]);
+    delete debounceTimers[property];
+  }
+
+  function queueChange(property, value) {
+    clearDebounceTimer(property);
     debounceTimers[property] = setTimeout(() => {
       delete debounceTimers[property];
       sendChangeMessage(property, value);
     }, DEBOUNCE_MS);
   }
 
-  function sendChangeImmediate(property, value) {
-    if (debounceTimers[property]) {
-      clearTimeout(debounceTimers[property]);
-      delete debounceTimers[property];
-    }
+  function commitChange(property, value) {
+    clearDebounceTimer(property);
     sendChangeMessage(property, value);
+  }
+
+  function getChangeTarget(src, property) {
+    if (activeState !== 'normal') {
+      const pseudoState = (src.pseudoStates || {})[activeState];
+      if (pseudoState) {
+        return { file: pseudoState.file, selector: pseudoState.selector, line: pseudoState.line || undefined, styleType: 'css' };
+      }
+      const baseSelector = src.selector.replace(/:[a-z-]+/g, '');
+      return { file: src.file, selector: baseSelector + ':' + activeState, styleType: 'css' };
+    }
+
+    const cssRule = src.cssRule;
+    if (src.styleType === 'inline' && cssRule?.properties && property in cssRule.properties) {
+      return { file: cssRule.file, selector: cssRule.selector, line: cssRule.line || undefined, styleType: 'css' };
+    }
+
+    return { file: src.file, selector: src.selector, line: src.line || undefined, styleType: src.styleType || undefined };
   }
 
   function sendChangeMessage(property, value) {
     const src = $sourceData;
-    if (!src || !src.selector) return;
-
-    // Inline preview is kept alive until CSS actually reloads —
-    // App.svelte calls clearPreviews() after the stylesheet swaps.
-
-    // If editing a pseudo state (:hover, :focus, :active), route to that rule
-    if (activeState !== 'normal') {
-      const pseudoState = (src.pseudoStates || {})[activeState];
-      if (pseudoState) {
-        send({
-          type: 'change',
-          file: pseudoState.file,
-          selector: pseudoState.selector,
-          property: property,
-          value: value,
-          line: pseudoState.line || undefined,
-          styleType: 'css',
-        });
-        return;
-      }
-      // No existing rule for this state — create one by appending pseudo-class
-      // to the base selector (e.g., `.btn-primary` → `.btn-primary:hover`)
-      const baseSelector = src.selector.replace(/:[a-z-]+/g, ''); // strip any pseudo
-      send({
-        type: 'change',
-        file: src.file,
-        selector: baseSelector + ':' + activeState,
-        property: property,
-        value: value,
-        styleType: 'css',
-      });
-      return;
-    }
-
-    // When the primary match is inline but the property exists in a CSS rule,
-    // route the change to the CSS rule instead of the inline style.
-    const cssRule = src.cssRule;
-    if (src.styleType === 'inline' && cssRule && cssRule.properties && property in cssRule.properties) {
-      send({
-        type: 'change',
-        file: cssRule.file,
-        selector: cssRule.selector,
-        property: property,
-        value: value,
-        line: cssRule.line || undefined,
-        styleType: 'css',
-      });
-      return;
-    }
-
-    send({
-      type: 'change',
-      file: src.file,
-      selector: src.selector,
-      property: property,
-      value: value,
-      line: src.line || undefined,
-      styleType: src.styleType || undefined,
-    });
+    if (!src?.selector) return;
+    send({ type: 'change', ...getChangeTarget(src, property), property, value });
   }
 
   // ── Control event handlers ──────────────────────────────────────
   function onControlInput(e) {
     const { property, value } = e.detail;
-    controlValues[property] = value;
+    controlValues = { ...controlValues, [property]: value };
+    normalControlValues[property] = value;
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onControlChange(e) {
     const { property, value } = e.detail;
-    controlValues[property] = value;
+    controlValues = { ...controlValues, [property]: value };
+    normalControlValues[property] = value;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
   }
 
   function onSpacingInput(e) {
@@ -409,14 +402,14 @@
     spacingValues[property] = e.detail.raw || value.replace(/px$/, '');
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onSpacingChange(e) {
     const { property, value } = e.detail;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
   }
 
   function onBorderInput(e) {
@@ -424,7 +417,7 @@
     borderValues[property] = value;
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onBorderChange(e) {
@@ -432,7 +425,7 @@
     borderValues[property] = value;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
   }
 
   function onLayoutInput(e) {
@@ -440,7 +433,7 @@
     layoutValues[property] = value;
 
     applyLivePreview(property, value);
-    debounceSendChange(property, value);
+    queueChange(property, value);
   }
 
   function onLayoutChange(e) {
@@ -448,7 +441,7 @@
     layoutValues[property] = value;
 
     applyLivePreview(property, value);
-    sendChangeImmediate(property, value);
+    commitChange(property, value);
     ensureFlexDisplay();
   }
 
@@ -456,7 +449,7 @@
     if (layoutDisplayValue !== 'flex' && layoutDisplayValue !== 'inline-flex') {
       layoutDisplayValue = 'flex';
       applyLivePreview('display', 'flex');
-      sendChangeImmediate('display', 'flex');
+      commitChange('display', 'flex');
     }
   }
 
@@ -539,23 +532,33 @@
     return def.options;
   }
 
-  // Build panel sections: schema-driven controls plus custom sections (Spacing, Layout)
-  function getPanelSections() {
-    const result = [];
+  // Build panel sections: schema-driven controls plus custom sections,
+  // ordered by element type (text vs container).
+  function getPanelSections(el) {
+    // Collect all sections into a lookup by id
+    const sectionMap = {};
     for (const s of CONTROL_SCHEMA) {
-      result.push(s);
-      if (s.id === 'colors') {
-        result.push({ section: 'Border', id: 'border', controls: null });
-      }
-      if (s.id === 'size') {
-        result.push({ section: 'Spacing', id: 'spacing', controls: null });
-        result.push({ section: 'Layout', id: 'layout', controls: null });
-      }
+      sectionMap[s.id] = s;
     }
-    return result;
+    // Custom sections (not in CONTROL_SCHEMA)
+    sectionMap['layout'] = { section: 'Layout', id: 'layout', controls: null };
+    sectionMap['spacing'] = { section: 'Position', id: 'spacing', controls: null };
+    sectionMap['border'] = { section: 'Border', id: 'border', controls: null };
+
+    // Determine ordering based on element type
+    const tagName = el ? el.tagName : 'DIV';
+    const isText = isTextElement(tagName);
+
+    // Text element order:   Text, Layout, Position, Border, Colors, Effects
+    // Container order:      Layout, Position, Border, Colors, Text, Effects
+    const order = isText
+      ? ['text', 'layout', 'spacing', 'border', 'colors', 'effects']
+      : ['layout', 'spacing', 'border', 'colors', 'text', 'effects'];
+
+    return order.map(id => sectionMap[id]).filter(Boolean);
   }
 
-  $: sections = getPanelSections();
+  $: sections = getPanelSections(element);
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -650,6 +653,19 @@
               {/if}
             </div>
           {:else if sectionDef.id === 'layout'}
+            {#each SIZE_CONTROLS as def}
+              <SliderControl
+                property={def.property}
+                value={controlValues[def.property] || ''}
+                label={def.label}
+                min={def.min}
+                max={def.max}
+                step={def.step}
+                units={def.units}
+                on:input={onControlInput}
+                on:change={onControlChange}
+              />
+            {/each}
             <LayoutControl
               values={layoutValues}
               on:input={onLayoutInput}
