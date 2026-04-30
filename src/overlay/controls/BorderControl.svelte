@@ -31,17 +31,51 @@
   $: normalizedColor = rgbToHex(currentColorRaw);
   $: currentHex = normalizedColor === 'transparent' ? '#000000' : normalizedColor;
 
+  // Derive hasBorder from values prop. The `values` object reference changes
+  // when the parent passes updated props, so track it to avoid recalculating
+  // during intermediate states (where values is stale but hasBorder was set directly).
+  let hasBorder = false;
+  let _prevValues = null;
+  $: if (values !== _prevValues) {
+    _prevValues = values;
+    hasBorder = SIDES.some(side => {
+      const w = parseNumericValue(values[`border-${side}-width`] || '0px').num;
+      const s = values[`border-${side}-style`] || 'none';
+      return w > 0 && s !== 'none';
+    });
+  }
+
+  function addBorder() {
+    hasBorder = true;
+    emitAllSides('change', { 'border-width': '1px', 'border-style': 'solid', 'border-color': '#000000' });
+  }
+
+  function removeBorder() {
+    hasBorder = false;
+    emitAllSides('change', { 'border-width': '0px', 'border-style': 'none' });
+  }
+
   function selectSide(side) {
     activeSide = side;
     dropdownOpen = false;
   }
 
-  /** Expand a base border property (e.g. 'border-width') to per-side properties and dispatch. */
+  /** Dispatch a border property change for the active side(s). */
   function emitBorderEvent(eventName, baseBorderProperty, value) {
     const sides = activeSide === 'all' ? SIDES : [activeSide];
     for (const side of sides) {
       const perSide = baseBorderProperty.replace('border-', `border-${side}-`);
       dispatch(eventName, { property: perSide, value });
+    }
+  }
+
+  /** Dispatch border changes for all sides regardless of activeSide. */
+  function emitAllSides(eventName, props) {
+    for (const [baseProp, value] of Object.entries(props)) {
+      for (const side of SIDES) {
+        const perSide = baseProp.replace('border-', `border-${side}-`);
+        dispatch(eventName, { property: perSide, value });
+      }
     }
   }
 
@@ -93,78 +127,83 @@
   });
 </script>
 
-<div class="border-control">
-  <!-- Color row -->
-  <div class="border-row">
-    <PickrSwatch
-      color={currentHex}
-      on:input={onColorInput}
-      on:change={onColorChange}
-    />
-    <input
-      type="text"
-      class="border-hex"
-      placeholder="#000000"
-      maxlength="7"
-      value={currentHex}
-      on:input={(e) => emitHexColor(e, 'input')}
-      on:change={(e) => emitHexColor(e, 'change')}
-    />
-  </div>
+{#if hasBorder}
+  <div class="border-control">
+    <!-- Color row -->
+    <div class="border-row">
+      <PickrSwatch
+        color={currentHex}
+        on:input={onColorInput}
+        on:change={onColorChange}
+      />
+      <input
+        type="text"
+        class="border-hex"
+        placeholder="#000000"
+        maxlength="7"
+        value={currentHex}
+        on:input={(e) => emitHexColor(e, 'input')}
+        on:change={(e) => emitHexColor(e, 'change')}
+      />
+      <button class="border-remove" title="Remove border" on:click={removeBorder}>&minus;</button>
+    </div>
 
-  <!-- Style + width + side selector row -->
-  <div class="border-row">
-    <select
-      class="border-style-select"
-      value={currentStyle}
-      on:change={onStyleChange}
-    >
-      {#each STYLES as s}
-        <option value={s}>{s}</option>
-      {/each}
-    </select>
-    <input
-      type="number"
-      class="border-width-input"
-      min="0" max="100" step="1"
-      value={currentWidth}
-      on:input={onWidthInput}
-      on:change={onWidthChange}
-    />
-    <span class="border-unit">px</span>
-
-    <!-- Side dropdown trigger -->
-    <div class="side-dropdown-wrap" bind:this={dropdownEl}>
-      <button
-        class="side-trigger"
-        title="Border side: {activeSide}"
-        on:click={() => dropdownOpen = !dropdownOpen}
+    <!-- Style + width + side selector row -->
+    <div class="border-row">
+      <select
+        class="border-style-select"
+        value={currentStyle}
+        on:change={onStyleChange}
       >
-        <span class="side-trigger-icon">{@html BORDER_SIDE_ICONS[activeSide]}</span>
-      </button>
+        {#each STYLES as s}
+          <option value={s}>{s}</option>
+        {/each}
+      </select>
+      <input
+        type="number"
+        class="border-width-input"
+        min="0" max="100" step="1"
+        value={currentWidth}
+        on:input={onWidthInput}
+        on:change={onWidthChange}
+      />
+      <span class="border-unit">px</span>
 
-      {#if dropdownOpen}
-        <div class="side-dropdown">
-          {#each SIDE_OPTIONS as opt}
-            <button
-              class="side-option"
-              class:selected={activeSide === opt.value}
-              on:click={() => selectSide(opt.value)}
-            >
-              {#if activeSide === opt.value}
-                <span class="side-check">&#10003;</span>
-              {:else}
-                <span class="side-check"></span>
-              {/if}
-              <span class="side-icon">{@html BORDER_SIDE_ICONS[opt.value]}</span>
-              <span class="side-label">{opt.label}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
+      <!-- Side dropdown trigger -->
+      <div class="side-dropdown-wrap" bind:this={dropdownEl}>
+        <button
+          class="side-trigger"
+          title="Border side: {activeSide}"
+          on:click={() => dropdownOpen = !dropdownOpen}
+        >
+          <span class="side-trigger-icon">{@html BORDER_SIDE_ICONS[activeSide]}</span>
+        </button>
+
+        {#if dropdownOpen}
+          <div class="side-dropdown">
+            {#each SIDE_OPTIONS as opt}
+              <button
+                class="side-option"
+                class:selected={activeSide === opt.value}
+                on:click={() => selectSide(opt.value)}
+              >
+                {#if activeSide === opt.value}
+                  <span class="side-check">&#10003;</span>
+                {:else}
+                  <span class="side-check"></span>
+                {/if}
+                <span class="side-icon">{@html BORDER_SIDE_ICONS[opt.value]}</span>
+                <span class="side-label">{opt.label}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
-</div>
+{:else}
+  <button class="border-add" on:click={addBorder}>+ Add border</button>
+{/if}
 
 <style>
   .border-control {
@@ -192,6 +231,44 @@
     outline: none;
   }
   .border-hex:focus { border-color: #4A9EFF; }
+
+  .border-add {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+    background: none;
+    color: #777;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .border-add:hover {
+    color: #bbb;
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .border-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: #666;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .border-remove:hover {
+    color: #e55;
+    background: rgba(255, 80, 80, 0.1);
+  }
 
   /* Style dropdown */
   .border-style-select {
