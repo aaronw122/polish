@@ -766,6 +766,8 @@ export function createWriter(projectDir) {
   const pending = new Map();
   /** Per-file promise chains to serialize flushes targeting the same file. */
   const fileChains = new Map();
+  /** Files recently written by Polish — watcher should ignore these. */
+  const recentWrites = new Set();
 
   /**
    * Execute a flush within the per-file serialization chain so that
@@ -787,6 +789,10 @@ export function createWriter(projectDir) {
 
     return enqueueFlush(filePath, async () => {
       try {
+        // Mark this file as a self-write so the watcher can skip its reload
+        recentWrites.add(filePath);
+        setTimeout(() => recentWrites.delete(filePath), 2000);
+
         if (styleType === 'inline') {
           await writeInlineStyle(filePath, selector, property, value, lineHint);
         } else if (styleType === 'style-block') {
@@ -861,6 +867,7 @@ export function createWriter(projectDir) {
   return {
     applyChange: applyChangeMessage,
     flushAll,
+    recentWrites,
     _pending: pending,
   };
 }

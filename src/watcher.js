@@ -82,7 +82,7 @@ function queueReload(filePath, pendingState) {
  * @param {object} [options.chokidarOptions] - Extra options passed to chokidar.watch()
  * @returns {{ close(): Promise<void>, onFileChange(cb: Function): void }}
  */
-export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS, chokidarOptions = {} } = {}) {
+export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS, chokidarOptions = {}, recentWrites = null } = {}) {
   const resolvedDir = path.resolve(projectDir);
   const polishDir = path.resolve(__dirname, '..');
   const changeCallbacks = [];
@@ -107,6 +107,15 @@ export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS,
 
     console.log(`Polish: file changed → ${path.relative(resolvedDir, filePath)}`);
     notifyCallbacks(filePath, changeCallbacks);
+
+    // Skip reload for files Polish just wrote — the change is already
+    // live-previewed in the overlay, so a reload would be disruptive.
+    const resolved = path.resolve(filePath);
+    if (recentWrites && recentWrites.has(resolved)) {
+      console.log(`Polish: skipping reload (self-write) → ${path.relative(resolvedDir, filePath)}`);
+      return;
+    }
+
     queueReload(filePath, pending);
     scheduleFlush();
   }

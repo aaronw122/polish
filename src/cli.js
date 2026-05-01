@@ -12,7 +12,7 @@ function startPolish(httpServer, dir, port) {
   const wss = createWebSocketServer(httpServer, { dir });
   wss.setResolver(resolver);
 
-  const watcher = createWatcher(dir, { broadcast: wss.broadcast.bind(wss) });
+  const watcher = createWatcher(dir, { broadcast: wss.broadcast.bind(wss), recentWrites: wss.recentWrites });
   watcher.onFileChange(() => resolver.rescan());
 
   httpServer.on('error', (err) => {

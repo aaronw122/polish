@@ -507,19 +507,19 @@
       return;
     }
 
-    // Commit only the properties that were actually changed during drag.
-    // Read final computed values so the committed CSS is the true rendered value.
-    const computed = window.getComputedStyle($selectedElement);
-    const propsToCommit = [];
+    // Commit the inline style values that were set during drag.
+    // IMPORTANT: read from element.style (the inline values), NOT getComputedStyle.
+    // getComputedStyle always returns content-box dimensions, but the inline
+    // values were set as border-box values from getBoundingClientRect math.
+    // Committing computed values would shrink the element by the padding amount.
+    const inlineProps = [
+      ['width', $selectedElement.style.width],
+      ['height', $selectedElement.style.height],
+      ['margin-top', $selectedElement.style.marginTop],
+      ['margin-left', $selectedElement.style.marginLeft],
+    ];
 
-    // Check which properties have inline preview values from the drag
-    if ($selectedElement.style.width) propsToCommit.push('width');
-    if ($selectedElement.style.height) propsToCommit.push('height');
-    if ($selectedElement.style.marginTop) propsToCommit.push('margin-top');
-    if ($selectedElement.style.marginLeft) propsToCommit.push('margin-left');
-
-    for (const prop of propsToCommit) {
-      const value = computed.getPropertyValue(prop);
+    for (const [prop, value] of inlineProps) {
       if (value) {
         panelComponent.commitResize(prop, value);
       }

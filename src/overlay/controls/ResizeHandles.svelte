@@ -23,8 +23,9 @@
     { key: 'w',  cursor: 'ew-resize',   affectsWidth: true,  affectsHeight: false, movesLeft: true,  movesTop: false },
   ];
 
-  // Corner handle keys — these get aspect ratio constraint
+  // Corner handle keys — these get aspect ratio constraint and visible dots
   const CORNER_KEYS = new Set(['nw', 'ne', 'se', 'sw']);
+  const EDGE_KEYS = new Set(['n', 's', 'e', 'w']);
 
   // Drag state
   let dragging = false;
@@ -41,30 +42,39 @@
   let savedBodyUserSelect = '';
 
   // Compute handle positions from rect
-  function getHandleStyle(handle) {
-    if (!rect) return 'display: none;';
-    const hSize = 8;
+  // Corner handles: 16x16 hit area centered on the corner
+  // Edge handles: span the full border length, thin in the perpendicular axis
+  function getHandleStyle(handle, r) {
+    if (!r) return 'display: none;';
     const hitSize = 16;
     const offset = hitSize / 2;
+    const cornerInset = hitSize; // edge handles stop short of corners
 
-    let x, y;
-
-    // Horizontal position
-    if (handle.key.includes('w')) {
-      x = rect.left - offset;
-    } else if (handle.key.includes('e')) {
-      x = rect.left + rect.width - offset;
-    } else {
-      x = rect.left + rect.width / 2 - offset;
+    if (EDGE_KEYS.has(handle.key)) {
+      // Edge handles span the full side minus corner zones
+      switch (handle.key) {
+        case 'n':
+          return `left: ${r.left + cornerInset}px; top: ${r.top - offset}px; width: ${r.width - cornerInset * 2}px; height: ${hitSize}px; cursor: ${handle.cursor};`;
+        case 's':
+          return `left: ${r.left + cornerInset}px; top: ${r.top + r.height - offset}px; width: ${r.width - cornerInset * 2}px; height: ${hitSize}px; cursor: ${handle.cursor};`;
+        case 'e':
+          return `left: ${r.left + r.width - offset}px; top: ${r.top + cornerInset}px; width: ${hitSize}px; height: ${r.height - cornerInset * 2}px; cursor: ${handle.cursor};`;
+        case 'w':
+          return `left: ${r.left - offset}px; top: ${r.top + cornerInset}px; width: ${hitSize}px; height: ${r.height - cornerInset * 2}px; cursor: ${handle.cursor};`;
+      }
     }
 
-    // Vertical position
-    if (handle.key.includes('n')) {
-      y = rect.top - offset;
-    } else if (handle.key.includes('s')) {
-      y = rect.top + rect.height - offset;
+    // Corner handles: small square centered on corner point
+    let x, y;
+    if (handle.key.includes('w')) {
+      x = r.left - offset;
     } else {
-      y = rect.top + rect.height / 2 - offset;
+      x = r.left + r.width - offset;
+    }
+    if (handle.key.includes('n')) {
+      y = r.top - offset;
+    } else {
+      y = r.top + r.height - offset;
     }
 
     return `left: ${x}px; top: ${y}px; width: ${hitSize}px; height: ${hitSize}px; cursor: ${handle.cursor};`;
@@ -222,11 +232,14 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
       class="polish-resize-handle"
+      class:edge={EDGE_KEYS.has(handle.key)}
       class:dragging
-      style={getHandleStyle(handle)}
+      style={getHandleStyle(handle, rect)}
       on:mousedown={(e) => onHandleMousedown(e, handle)}
     >
-      <div class="polish-resize-handle-dot"></div>
+      {#if CORNER_KEYS.has(handle.key)}
+        <div class="polish-resize-handle-dot"></div>
+      {/if}
     </div>
   {/each}
 {/if}
