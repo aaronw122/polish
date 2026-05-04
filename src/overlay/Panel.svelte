@@ -28,6 +28,7 @@
   let collapsedSections = {};
   let debounceTimers = {};
   let previewedProperties = new Set();
+  let htmlPersistedProperties = new Set();
 
   // ── Control values (keyed by CSS property) ──────────────────────
   let controlValues = {};
@@ -123,6 +124,7 @@
       if (element) element.style.removeProperty(prop);
     }
     previewedProperties.clear();
+    htmlPersistedProperties.clear();
 
     const computed = window.getComputedStyle(el);
     const vals = {};
@@ -349,6 +351,7 @@
     if (!element) { previewedProperties.clear(); return; }
     const computed = window.getComputedStyle(element);
     for (const prop of previewedProperties) {
+      if (htmlPersistedProperties.has(prop)) continue;
       const inlineVal = element.style.getPropertyValue(prop);
       if (!inlineVal) { previewedProperties.delete(prop); continue; }
 
@@ -410,7 +413,13 @@
   function sendChangeMessage(property, value) {
     const src = $sourceData;
     if (!src?.selector) return;
-    send({ type: 'change', ...getChangeTarget(src, property), property, value });
+    const target = getChangeTarget(src, property);
+    if (target.styleType === 'inline') {
+      htmlPersistedProperties.add(property);
+    } else {
+      htmlPersistedProperties.delete(property);
+    }
+    send({ type: 'change', ...target, property, value });
   }
 
   // ── Control event handlers ──────────────────────────────────────
@@ -549,11 +558,15 @@
       clearTimeout(debounceTimers[key]);
     });
     debounceTimers = {};
-    // Clear inline previews on close
+    // Clear inline previews on close (skip HTML-persisted properties —
+    // their inline style IS the persisted value, removing it would revert)
     for (const prop of previewedProperties) {
-      if (element) element.style.removeProperty(prop);
+      if (element && !htmlPersistedProperties.has(prop)) {
+        element.style.removeProperty(prop);
+      }
     }
     previewedProperties.clear();
+    htmlPersistedProperties.clear();
     dispatch('close');
   }
 

@@ -108,10 +108,13 @@ export function createWatcher(projectDir, { broadcast, debounceMs = DEBOUNCE_MS,
     console.log(`Polish: file changed → ${path.relative(resolvedDir, filePath)}`);
     notifyCallbacks(filePath, changeCallbacks);
 
-    // Skip reload for files Polish just wrote — the change is already
-    // live-previewed in the overlay, so a reload would be disruptive.
+    // Skip reload for non-CSS files Polish just wrote (e.g., HTML inline
+    // style edits). CSS self-writes still need the hot-swap so clearPreviews
+    // can clean up inline styles. Without this, inline styles persist and
+    // poison the resolver on re-selection.
     const resolved = path.resolve(filePath);
-    if (recentWrites && recentWrites.has(resolved)) {
+    const ext = path.extname(filePath).toLowerCase();
+    if (recentWrites && recentWrites.has(resolved) && ext !== '.css') {
       console.log(`Polish: skipping reload (self-write) → ${path.relative(resolvedDir, filePath)}`);
       return;
     }
