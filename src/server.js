@@ -170,6 +170,7 @@ export function createWebSocketServer(httpServer, config) {
   wss.broadcast = broadcast;
   wss.setResolver = setResolver;
   wss.flushAll = flushAll;
+  wss.recentWrites = writer.recentWrites;
 
   return wss;
 }

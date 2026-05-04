@@ -3,6 +3,7 @@
   import {
     active, hoveredElement, selectedElement,
     sourceData, panelVisible, shortcutHintShown,
+    undoStack,
   } from './stores/state.js';
   import {
     isPolishElement, formatLabel, describeElement,
@@ -10,6 +11,7 @@
   } from './lib/utils.js';
   import { connect, send, setMessageHandler } from './lib/socket.js';
   import Panel from './Panel.svelte';
+  import ResizeHandles from './controls/ResizeHandles.svelte';
 
   // ── Fallback selector builder ───────────────────────────────────
   // When the resolver finds no matching CSS rule, build a reasonable
@@ -61,6 +63,10 @@
   let hoverBox, hoverLabel, selectBox, selectLabel, infoPanel;
   let badgeEl, shortcutHint;
   let panelComponent;
+
+  // ── Resize handles state ─────────────────────────────────────────
+  let selectedRect = null;
+  let draggingResize = false;
 
   // ── Shortcut hint ───────────────────────────────────────────────
   let hintVisible = false;
@@ -141,6 +147,8 @@
       $panelVisible = false;
       $selectedElement = null;
       $hoveredElement = null;
+      selectedRect = null;
+      $undoStack = [];
     }
   }
 
@@ -149,6 +157,7 @@
     $selectedElement = el;
     startLivenessCheck();
     const rect = el.getBoundingClientRect();
+    selectedRect = rect;
 
     if (selectLabel) selectLabel.textContent = formatLabel(el);
     positionBox(selectBox, selectLabel, rect);
@@ -191,6 +200,7 @@
   function deselectEl() {
     stopLivenessCheck();
     $selectedElement = null;
+    selectedRect = null;
     hideBox(selectBox, selectLabel);
     if (infoPanel) infoPanel.style.display = 'none';
     $panelVisible = false;
@@ -200,7 +210,7 @@
 
   // ── Event handlers ──────────────────────────────────────────────
   function onMouseMove(e) {
-    if (!$active) { return; }
+    if (!$active || draggingResize) { return; }
     const target = e.target;
     if (isPolishElement(target)) {
       hideBox(hoverBox, hoverLabel);
@@ -222,7 +232,7 @@
   }
 
   function onClick(e) {
-    if (!$active) return;
+    if (!$active || draggingResize) return;
     const target = e.target;
     if (isPolishElement(target)) return;
 
@@ -249,6 +259,31 @@
     if ($active && $selectedElement && e.key === 'Escape') {
       e.preventDefault();
       deselectEl();
+    }
+
+    // Cmd+Z / Ctrl+Z: undo last resize
+    if ($active && (e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+      if ($undoStack.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        const stack = [...$undoStack];
+        const entry = stack.pop();
+        $undoStack = stack;
+
+        if (entry.element.isConnected && panelComponent) {
+          for (const [prop, oldValue] of Object.entries(entry.properties)) {
+            panelComponent.commitResize(prop, oldValue);
+          }
+          // Update selection visuals to reflect restored dimensions
+          if (entry.element === $selectedElement) {
+            const rect = entry.element.getBoundingClientRect();
+            selectedRect = rect;
+            if (selectLabel) selectLabel.textContent = formatLabel(entry.element);
+            positionBox(selectBox, selectLabel, rect);
+            positionInfoPanel(rect);
+          }
+        }
+      }
     }
 
     // Tab / Shift+Tab: cycle to sibling elements
@@ -290,6 +325,11 @@
       if (selectLabel) selectLabel.textContent = formatLabel($selectedElement);
       positionBox(selectBox, selectLabel, rect);
       positionInfoPanel(rect);
+      // Update selectedRect for resize handles — but skip during active
+      // drag, where the handle component manages its own rect from deltas
+      if (!draggingResize) {
+        selectedRect = rect;
+      }
     }
   }
 
@@ -414,6 +454,87 @@
     }
   }
 
+  const UNDO_STACK_MAX = 20;
+
+  // ── Resize handle events ─────────────────────────────────────────
+  function onResizeStart() {
+    draggingResize = true;
+    // Hide hover box during resize
+    hideBox(hoverBox, hoverLabel);
+    $hoveredElement = null;
+
+    // Snapshot current values for undo before the resize begins
+    if (panelComponent && $selectedElement) {
+      const snapshot = panelComponent.getCurrentValues([
+        'width', 'height', 'margin-top', 'margin-left', 'display',
+      ]);
+      $undoStack = [
+        ...$undoStack.slice(-(UNDO_STACK_MAX - 1)),
+        { properties: snapshot, element: $selectedElement },
+      ];
+    }
+  }
+
+  function onInlinePromote(e) {
+    const { property, value } = e.detail;
+    if (panelComponent) {
+      panelComponent.commitResize(property, value);
+    }
+  }
+
+  function onResize(e) {
+    const { changes } = e.detail;
+    if (!panelComponent) return;
+
+    // Apply each changed property via Panel's live preview pipeline
+    for (const [property, value] of Object.entries(changes)) {
+      panelComponent.applyResize(property, value);
+    }
+
+    // Update selection box and selectedRect to follow the element
+    if ($selectedElement && $selectedElement.isConnected) {
+      const rect = $selectedElement.getBoundingClientRect();
+      selectedRect = rect;
+      if (selectLabel) selectLabel.textContent = formatLabel($selectedElement);
+      positionBox(selectBox, selectLabel, rect);
+      positionInfoPanel(rect);
+    }
+  }
+
+  function onResizeEnd(e) {
+    if (!panelComponent || !$selectedElement) {
+      draggingResize = false;
+      return;
+    }
+
+    // Commit the inline style values that were set during drag.
+    // IMPORTANT: read from element.style (the inline values), NOT getComputedStyle.
+    // getComputedStyle always returns content-box dimensions, but the inline
+    // values were set as border-box values from getBoundingClientRect math.
+    // Committing computed values would shrink the element by the padding amount.
+    const inlineProps = [
+      ['width', $selectedElement.style.width],
+      ['height', $selectedElement.style.height],
+      ['margin-top', $selectedElement.style.marginTop],
+      ['margin-left', $selectedElement.style.marginLeft],
+    ];
+
+    for (const [prop, value] of inlineProps) {
+      if (value) {
+        panelComponent.commitResize(prop, value);
+      }
+    }
+
+    // Update selectedRect one final time
+    const rect = $selectedElement.getBoundingClientRect();
+    selectedRect = rect;
+    if (selectLabel) selectLabel.textContent = formatLabel($selectedElement);
+    positionBox(selectBox, selectLabel, rect);
+    positionInfoPanel(rect);
+
+    draggingResize = false;
+  }
+
   // ── Lifecycle ───────────────────────────────────────────────────
   // NOTE: onMount doesn't fire reliably in closed Shadow DOM.
   // Initialization is done via init() called from main.js.
@@ -477,6 +598,19 @@
     Esc &mdash; Deselect<br>
     Tab / Shift+Tab &mdash; Cycle siblings
   </div>
+{/if}
+
+<!-- Resize handles (when an element is selected and overlay is active) -->
+{#if $active && $selectedElement && $panelVisible}
+  <ResizeHandles
+    rect={selectedRect}
+    active={true}
+    element={$selectedElement}
+    on:resizestart={onResizeStart}
+    on:resize={onResize}
+    on:resizeend={onResizeEnd}
+    on:inlinepromote={onInlinePromote}
+  />
 {/if}
 
 <!-- Panel (when an element is selected). Keep the instance stable across edits. -->
