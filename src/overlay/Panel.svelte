@@ -98,24 +98,35 @@
     layoutValues = { ...normalLayoutValues };
   }
 
+  // Local cache of pseudo-state edits (survives state switching before server round-trip)
+  let pseudoStateEdits = {};
+
   function applyPseudoControlState(pseudoProperties) {
-    controlValues = { ...normalControlValues, ...pseudoProperties };
+    const localEdits = pseudoStateEdits[activeState] || {};
+    controlValues = { ...normalControlValues, ...pseudoProperties, ...localEdits };
     borderValues = {
       ...normalBorderValues,
       ...pickProperties(pseudoProperties, BORDER_PROPS),
+      ...pickProperties(localEdits, BORDER_PROPS),
     };
     layoutValues = {
       ...normalLayoutValues,
       ...pickProperties(pseudoProperties, LAYOUT_PROPS),
+      ...pickProperties(localEdits, LAYOUT_PROPS),
     };
   }
 
   // ── Reactivity: switch control values when activeState changes ──
+  // Track both activeState AND $sourceData so this re-fires when new
+  // source data arrives (e.g. after a CSS write round-trip). The function
+  // calls are in untrack() to avoid tracking the $state vars they read/write.
   $effect(() => {
-    if (activeState === 'normal') {
+    const state = activeState;
+    const src = $sourceData;
+    if (state === 'normal') {
       untrack(() => applyNormalControlState());
     } else {
-      const pseudoProperties = untrack(() => $sourceData?.pseudoStates?.[activeState]?.properties);
+      const pseudoProperties = src?.pseudoStates?.[state]?.properties;
       if (pseudoProperties) untrack(() => applyPseudoControlState(pseudoProperties));
     }
   });
@@ -272,6 +283,9 @@
       activeState = 'normal';
     }
 
+    // Clear local pseudo-state edit cache — server data is now authoritative
+    pseudoStateEdits = {};
+
     // Media query warning: check if the primary matched rule is inside @media
     const primary = rules.length > 0 ? rules[rules.length - 1] : null;
     primaryMediaQuery = (primary && primary.mediaQuery) ? primary.mediaQuery : null;
@@ -390,9 +404,16 @@
   }
 
   // ── Control event handlers ──────────────────────────────────────
+  function cachePseudoEdit(property, value) {
+    if (activeState === 'normal') return;
+    if (!pseudoStateEdits[activeState]) pseudoStateEdits[activeState] = {};
+    pseudoStateEdits[activeState][property] = value;
+  }
+
   function onControlInput({ property, value }) {
     controlValues = { ...controlValues, [property]: value };
     if (activeState === 'normal') normalControlValues[property] = value;
+    else cachePseudoEdit(property, value);
     applyLivePreview(property, value);
     queueChange(property, value);
   }
@@ -400,6 +421,7 @@
   function onControlChange({ property, value }) {
     controlValues = { ...controlValues, [property]: value };
     if (activeState === 'normal') normalControlValues[property] = value;
+    else cachePseudoEdit(property, value);
     applyLivePreview(property, value);
     commitChange(property, value);
   }
@@ -419,6 +441,8 @@
     borderValues = { ...borderValues, [property]: value };
     if (activeState === 'normal') {
       normalBorderValues = { ...normalBorderValues, [property]: value };
+    } else {
+      cachePseudoEdit(property, value);
     }
     applyLivePreview(property, value);
     queueChange(property, value);
@@ -428,6 +452,8 @@
     borderValues = { ...borderValues, [property]: value };
     if (activeState === 'normal') {
       normalBorderValues = { ...normalBorderValues, [property]: value };
+    } else {
+      cachePseudoEdit(property, value);
     }
     applyLivePreview(property, value);
     commitChange(property, value);
@@ -435,12 +461,14 @@
 
   function onLayoutInput({ property, value }) {
     layoutValues[property] = value;
+    if (activeState !== 'normal') cachePseudoEdit(property, value);
     applyLivePreview(property, value);
     queueChange(property, value);
   }
 
   function onLayoutChange({ property, value }) {
     layoutValues[property] = value;
+    if (activeState !== 'normal') cachePseudoEdit(property, value);
     applyLivePreview(property, value);
     commitChange(property, value);
     ensureFlexDisplay();
