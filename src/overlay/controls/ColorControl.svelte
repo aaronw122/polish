@@ -1,40 +1,40 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { rgbToHex } from '../lib/utils.js';
   import PickrSwatch from './PickrSwatch.svelte';
 
-  export let property;
-  export let value = '#000000';
-  export let label = '';
+  let { property, value = '#000000', label = '', oninput, onchange } = $props();
 
-  const dispatch = createEventDispatcher();
   const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
-  $: isTransparent = rgbToHex(value) === 'transparent';
-  $: hexValue = isTransparent ? '#000000' : rgbToHex(value);
+  let isTransparent = $derived(rgbToHex(value) === 'transparent');
+  let hexValue = $derived(isTransparent ? '#000000' : rgbToHex(value));
 
   // Remember last color so toggle can restore it
   let lastHexValue = '#000000';
-  $: if (!isTransparent) lastHexValue = hexValue;
+  $effect(() => {
+    if (!isTransparent) lastHexValue = hexValue;
+  });
 
-  let swatchColor = '#000000';
-  $: swatchColor = hexValue;
+  let swatchColor = $state('#000000');
+  $effect(() => {
+    swatchColor = hexValue;
+  });
 
-  let textValue = '';
-  $: textValue = isTransparent ? 'transparent' : hexValue;
+  let textValue = $state('');
+  $effect(() => {
+    textValue = isTransparent ? 'transparent' : hexValue;
+  });
 
-  function onPickrInput(e) {
-    const nextColor = e.detail.value;
+  function onPickrInput({ value: nextColor }) {
     swatchColor = nextColor;
     textValue = nextColor;
-    dispatch('input', { property, value: nextColor });
+    oninput?.({ property, value: nextColor });
   }
 
-  function onPickrChange(e) {
-    const nextColor = e.detail.value;
+  function onPickrChange({ value: nextColor }) {
     swatchColor = nextColor;
     textValue = nextColor;
-    dispatch('change', { property, value: nextColor });
+    onchange?.({ property, value: nextColor });
   }
 
   function onTextInput(e) {
@@ -43,7 +43,7 @@
     textValue = nextColor;
     if (HEX_RE.test(nextColor)) {
       swatchColor = nextColor;
-      dispatch('input', { property, value: nextColor });
+      oninput?.({ property, value: nextColor });
     }
   }
 
@@ -52,12 +52,12 @@
     const nextColor = e.target.value.trim();
     if (HEX_RE.test(nextColor)) {
       swatchColor = nextColor;
-      dispatch('change', { property, value: nextColor });
+      onchange?.({ property, value: nextColor });
     }
   }
 
   function toggleTransparent() {
-    dispatch('change', { property, value: isTransparent ? lastHexValue : 'transparent' });
+    onchange?.({ property, value: isTransparent ? lastHexValue : 'transparent' });
   }
 </script>
 
@@ -68,9 +68,9 @@
       color={swatchColor}
       showTransparent={true}
       {isTransparent}
-      on:input={onPickrInput}
-      on:change={onPickrChange}
-      on:transparent={toggleTransparent}
+      oninput={onPickrInput}
+      onchange={onPickrChange}
+      ontransparent={toggleTransparent}
     />
     <input
       type="text"
@@ -81,8 +81,8 @@
       maxlength="7"
       value={textValue}
       readonly={isTransparent}
-      on:input={onTextInput}
-      on:change={onTextChange}
+      oninput={onTextInput}
+      onchange={onTextChange}
     />
   </div>
 </div>
