@@ -1,15 +1,8 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
-
-  export let property;
-  export let value = '';
-  export let label = '';
-  export let options = [];
-
-  const dispatch = createEventDispatcher();
+  let { property, value = '', label = '', options = [], onchange } = $props();
 
   function onChange(e) {
-    dispatch('change', { property, value: e.target.value });
+    onchange?.({ property, value: e.target.value });
   }
 </script>
 
@@ -20,7 +13,7 @@
       class="polish-select-input"
       data-property={property}
       {value}
-      on:change={onChange}
+      onchange={onChange}
     >
       {#each options as opt}
         <option value={opt.value !== undefined ? opt.value : opt}>

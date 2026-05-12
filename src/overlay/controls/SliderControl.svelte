@@ -1,30 +1,21 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { clampValue, parseNumericValue } from '../lib/utils.js';
 
-  export let property;
-  export let value = '0';
-  export let label = '';
-  export let min = 0;
-  export let max = 100;
-  export let step = 1;
-  export let units = 'px'; // string or array of strings, or null
-
-  const dispatch = createEventDispatcher();
+  let { property, value = '0', label = '', min = 0, max = 100, step = 1, units = 'px', oninput, onchange } = $props();
 
   // Parse the incoming value
-  let numVal = 0;
-  let currentUnit = '';
+  let numVal = $state(0);
+  let currentUnit = $state('');
 
-  $: {
+  let unitOptions = $derived(units ? (Array.isArray(units) ? units : [units]) : []);
+
+  $effect(() => {
     const parsed = parseNumericValue(value);
     numVal = clampValue(parsed.num, min, max);
     if (unitOptions.length > 0 && parsed.unit) {
       currentUnit = parsed.unit;
     }
-  }
-
-  $: unitOptions = units ? (Array.isArray(units) ? units : [units]) : [];
+  });
 
   function getFullValue(num, unit) {
     if (unit === 'auto') return 'auto';
@@ -37,16 +28,18 @@
     const raw = parseFloat(e.target.value);
     numVal = shouldClamp ? clampValue(raw, min, max) : raw;
     const full = getFullValue(numVal, currentUnit);
-    dispatch(eventName, { property, value: full });
+    const detail = { property, value: full };
+    if (eventName === 'input') oninput?.(detail);
+    else onchange?.(detail);
   }
 
   function onUnitChange(e) {
     currentUnit = e.target.value;
     if (currentUnit === 'auto') {
-      dispatch('change', { property, value: 'auto' });
+      onchange?.({ property, value: 'auto' });
     } else {
       const full = getFullValue(numVal, currentUnit);
-      dispatch('change', { property, value: full });
+      onchange?.({ property, value: full });
     }
   }
 </script>
@@ -62,8 +55,8 @@
       {max}
       {step}
       value={numVal}
-      on:input={(e) => emitNumericChange(e, 'input', false)}
-      on:change={(e) => emitNumericChange(e, 'change', false)}
+      oninput={(e) => emitNumericChange(e, 'input', false)}
+      onchange={(e) => emitNumericChange(e, 'change', false)}
     />
     <input
       type="number"
@@ -73,14 +66,14 @@
       {max}
       {step}
       value={numVal}
-      on:input={(e) => emitNumericChange(e, 'input', true)}
-      on:change={(e) => emitNumericChange(e, 'change', true)}
+      oninput={(e) => emitNumericChange(e, 'input', true)}
+      onchange={(e) => emitNumericChange(e, 'change', true)}
     />
     {#if unitOptions.length > 0}
       <select
         class="polish-unit-select"
         value={currentUnit}
-        on:change={onUnitChange}
+        onchange={onUnitChange}
       >
         {#each unitOptions as u}
           <option value={u}>{u}</option>

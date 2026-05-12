@@ -1,3 +1,4 @@
+import { mount } from 'svelte';
 import App from './App.svelte';
 
 (function () {
@@ -23,7 +24,7 @@ import App from './App.svelte';
   const shadow = host.attachShadow({ mode: 'closed' });
 
   try {
-    const app = new App({ target: shadow });
+    const app = mount(App, { target: shadow });
     app.init();
   } catch (err) {
     console.error('[Polish] Mount/init failed:', err);

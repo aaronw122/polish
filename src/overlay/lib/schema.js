@@ -87,7 +87,7 @@ const TEXT_ELEMENTS = new Set([
   'label', 'li', 'blockquote', 'em', 'strong', 'small',
   'code', 'pre', 'q', 'cite', 'figcaption', 'dt', 'dd',
   'th', 'td', 'caption', 'abbr', 'time', 'mark', 'b', 'i', 'u', 's',
-  'sub', 'sup', 'button', 'legend', 'summary',
+  'sub', 'sup', 'legend', 'summary',
 ]);
 
 export function isTextElement(tagName) {
