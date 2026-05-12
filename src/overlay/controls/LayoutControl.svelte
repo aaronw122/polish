@@ -1,15 +1,8 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { parseNumericValue, clampValue } from '../lib/utils.js';
   import { LAYOUT_ICONS } from './layoutIcons.js';
 
-  export let values = {};
-
-  const dispatch = createEventDispatcher();
-
-  $: direction = values['flex-direction'] || 'row';
-  $: isColumn = direction === 'column' || direction === 'column-reverse';
-  $: gapRem = toRoundedGapRem(values['gap'] || '0');
+  let { values = {}, oninput, onchange } = $props();
 
   function toRoundedGapRem(raw) {
     if (raw === 'normal' || raw === 'none' || raw === 'auto') return 0;
@@ -18,9 +11,15 @@
     return Math.round(clampValue(rem, 0, 10) * 8) / 8;
   }
 
+  let direction = $derived(values['flex-direction'] || 'row');
+  let isColumn = $derived(direction === 'column' || direction === 'column-reverse');
+  let gapRem = $derived(toRoundedGapRem(values['gap'] || '0'));
+
   function dispatchGap(eventName, rawValue) {
     const clamped = Math.round(clampValue(parseFloat(rawValue), 0, 10) * 8) / 8;
-    dispatch(eventName, { property: 'gap', value: clamped + 'rem' });
+    const detail = { property: 'gap', value: clamped + 'rem' };
+    if (eventName === 'input') oninput?.(detail);
+    else onchange?.(detail);
   }
 
   function onGapKeydown(e) {
@@ -60,7 +59,7 @@
             class="layout-btn"
             class:active={(values[row.property] || row.default) === opt.value}
             title={opt.label}
-            on:click={() => dispatch('change', { property: row.property, value: opt.value })}
+            onclick={() => onchange?.({ property: row.property, value: opt.value })}
           >
             <span class="layout-icon" class:rotated={row.rotateIcons && isColumn}>
               {@html LAYOUT_ICONS[row.property + ':' + opt.value]}
@@ -79,16 +78,16 @@
         class="polish-slider"
         min="0" max="10" step="0.125"
         value={gapRem}
-        on:input={e => dispatchGap('input', e.target.value)}
-        on:change={e => dispatchGap('change', e.target.value)}
+        oninput={e => dispatchGap('input', e.target.value)}
+        onchange={e => dispatchGap('change', e.target.value)}
       />
       <input
         type="number"
         class="polish-num-input"
         min="0" max="10" step="0.125"
         value={gapRem}
-        on:change={e => dispatchGap('change', e.target.value)}
-        on:keydown={onGapKeydown}
+        onchange={e => dispatchGap('change', e.target.value)}
+        onkeydown={onGapKeydown}
       />
       <span class="layout-unit">rem</span>
     </div>
