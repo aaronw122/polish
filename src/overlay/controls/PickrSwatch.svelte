@@ -11,7 +11,7 @@
   let { color = '#000000', showTransparent = false, isTransparent = false, oninput, onchange, ontransparent } = $props();
   const COMMIT_DELAY_MS = 300;
 
-  let pickerOpen = false;
+  let pickerOpen = $state(false);
   let pickrInstance = null;
   let transparentBtn = null;
   let wrapEl;

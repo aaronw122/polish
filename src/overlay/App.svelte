@@ -59,8 +59,8 @@
 
   // ── Overlay DOM refs ────────────────────────────────────────────
   let hoverBox, hoverLabel, selectBox, selectLabel, infoPanel;
-  let badgeEl, shortcutHint;
-  let panelComponent;
+  let badgeEl, shortcutHint = $state();
+  let panelComponent = $state();
 
   // ── Shortcut hint ───────────────────────────────────────────────
   let hintVisible = $state(false);

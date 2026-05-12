@@ -12,7 +12,7 @@
 
   let activeSide = $state('all');
   let dropdownOpen = $state(false);
-  let dropdownEl;
+  let dropdownEl = $state();
 
   const SIDE_OPTIONS = [
     { value: 'all',    label: 'All' },
