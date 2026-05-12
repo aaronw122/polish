@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import {
     active, hoveredElement, selectedElement,
     sourceData, panelVisible, shortcutHintShown,
@@ -63,8 +63,8 @@
   let panelComponent;
 
   // ── Shortcut hint ───────────────────────────────────────────────
-  let hintVisible = false;
-  let hintFading = false;
+  let hintVisible = $state(false);
+  let hintFading = $state(false);
 
   // ── Position helpers ────────────────────────────────────────────
   function positionBox(box, label, rect) {
@@ -453,15 +453,15 @@
 <div class="polish-info" bind:this={infoPanel}></div>
 
 <!-- Badge -->
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="polish-badge"
   class:active={$active}
   class:inactive={!$active}
   style="pointer-events: auto;"
   bind:this={badgeEl}
-  on:click|stopPropagation={toggleOverlay}
+  onclick={(e) => { e.stopPropagation(); toggleOverlay(); }}
 >Polish</div>
 
 <!-- Keyboard shortcut hint -->
@@ -484,7 +484,7 @@
   <Panel
     bind:this={panelComponent}
     element={$selectedElement}
-    on:close={deselectEl}
+    onclose={deselectEl}
   />
 {/if}
 
