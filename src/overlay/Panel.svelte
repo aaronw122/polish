@@ -392,14 +392,14 @@
   // ── Control event handlers ──────────────────────────────────────
   function onControlInput({ property, value }) {
     controlValues = { ...controlValues, [property]: value };
-    normalControlValues[property] = value;
+    if (activeState === 'normal') normalControlValues[property] = value;
     applyLivePreview(property, value);
     queueChange(property, value);
   }
 
   function onControlChange({ property, value }) {
     controlValues = { ...controlValues, [property]: value };
-    normalControlValues[property] = value;
+    if (activeState === 'normal') normalControlValues[property] = value;
     applyLivePreview(property, value);
     commitChange(property, value);
   }
