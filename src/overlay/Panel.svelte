@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { untrack } from 'svelte';
   import { CONTROL_SCHEMA, SPACING_PROPS, BORDER_PROPS, LAYOUT_PROPS, SIZE_CONTROLS, isTextElement, computeCollapsedSections } from './lib/schema.js';
   import {
     parseNumericValue, cssToCamel,
@@ -14,69 +14,73 @@
   import BorderControl from './controls/BorderControl.svelte';
   import LayoutControl from './controls/LayoutControl.svelte';
 
-  export let element = null;
-
-  const dispatch = createEventDispatcher();
+  let { element = null, onclose } = $props();
 
   // ── Panel state ─────────────────────────────────────────────────
   let panelEl;
-  let panelLeft = 0;
-  let panelTop = 0;
+  let panelLeft = $state(0);
+  let panelTop = $state(0);
   let dragState = null;
   let initializedElement = null;
   let positionedElement = null;
-  let collapsedSections = {};
+  let collapsedSections = $state({});
   let debounceTimers = {};
   let previewedProperties = new Set();
 
   // ── Control values (keyed by CSS property) ──────────────────────
-  let controlValues = {};
-  let spacingValues = {};
+  let controlValues = $state({});
+  let spacingValues = $state({});
   let normalControlValues = {};
   let normalSpacingValues = {};
-  let borderValues = {};
+  let borderValues = $state({});
   let normalBorderValues = {};
-  let layoutValues = {};
+  let layoutValues = $state({});
   let normalLayoutValues = {};
   let layoutDisplayValue = 'block';
-  let shorthandProps = new Set();
-  let pseudoClasses = new Set();
-  let primaryMediaQuery = null;
-  let activeState = 'normal'; // 'normal', 'hover', 'focus', 'active'
-  let availableStates = []; // pseudo states that have CSS rules
+  let shorthandProps = $state(new Set());
+  let pseudoClasses = $state(new Set());
+  let primaryMediaQuery = $state(null);
+  let activeState = $state('normal'); // 'normal', 'hover', 'focus', 'active'
+  let availableStates = $state([]); // pseudo states that have CSS rules
 
   // ── Font-family special handling ────────────────────────────────
   // Track extra font options that were added dynamically for fonts
   // not in the web-safe list.
-  let extraFontOptions = {};
+  let extraFontOptions = $state({});
 
   // ── Reactivity: init panel when element changes ─────────────────
   // Edits to the same selection should not re-anchor the panel.
-  $: if (!element) {
-    initializedElement = null;
-    positionedElement = null;
-  }
+  $effect.pre(() => {
+    if (!element) {
+      initializedElement = null;
+      positionedElement = null;
+    }
+  });
 
-  $: if (element && element !== initializedElement) {
-    initializedElement = element;
-    activeState = 'normal';
-    collapsedSections = {};
-    initFromElement(element);
-    positionNearElement(element);
-    positionedElement = element;
-  }
+  $effect.pre(() => {
+    if (element && element !== initializedElement) {
+      initializedElement = element;
+      activeState = 'normal';
+      collapsedSections = {};
+      initFromElement(element);
+      positionNearElement(element);
+      positionedElement = element;
+    }
+  });
 
   // ── Reactivity: update from source data ─────────────────────────
   // Guard: only call updateFromSource when $sourceData actually changes,
   // not on every reactive re-run (which can be triggered by borderValues
   // or other variables referenced inside updateFromSource).
   let _lastSourceData = null;
-  $: if ($sourceData && element) {
-    if ($sourceData !== _lastSourceData) {
-      _lastSourceData = $sourceData;
-      updateFromSource($sourceData);
+  $effect(() => {
+    if ($sourceData && element) {
+      if ($sourceData !== _lastSourceData) {
+        _lastSourceData = $sourceData;
+        untrack(() => updateFromSource($sourceData));
+      }
     }
-  }
+  });
 
   // ── Helpers: pseudo-state control switching ─────────────────────
   function pickProperties(sourceProperties = {}, propertyNames) {
@@ -107,14 +111,14 @@
   }
 
   // ── Reactivity: switch control values when activeState changes ──
-  $: {
+  $effect(() => {
     if (activeState === 'normal') {
-      applyNormalControlState();
+      untrack(() => applyNormalControlState());
     } else {
-      const pseudoProperties = $sourceData?.pseudoStates?.[activeState]?.properties;
-      if (pseudoProperties) applyPseudoControlState(pseudoProperties);
+      const pseudoProperties = untrack(() => $sourceData?.pseudoStates?.[activeState]?.properties);
+      if (pseudoProperties) untrack(() => applyPseudoControlState(pseudoProperties));
     }
-  }
+  });
 
   // ── Initialize control values from computed styles ──────────────
   function initFromElement(el) {
@@ -386,73 +390,57 @@
   }
 
   // ── Control event handlers ──────────────────────────────────────
-  function onControlInput(e) {
-    const { property, value } = e.detail;
+  function onControlInput({ property, value }) {
     controlValues = { ...controlValues, [property]: value };
     normalControlValues[property] = value;
-
     applyLivePreview(property, value);
     queueChange(property, value);
   }
 
-  function onControlChange(e) {
-    const { property, value } = e.detail;
+  function onControlChange({ property, value }) {
     controlValues = { ...controlValues, [property]: value };
     normalControlValues[property] = value;
-
     applyLivePreview(property, value);
     commitChange(property, value);
   }
 
-  function onSpacingInput(e) {
-    const { property, value } = e.detail;
-    spacingValues[property] = e.detail.raw || value.replace(/px$/, '');
-
+  function onSpacingInput({ property, value, raw }) {
+    spacingValues[property] = raw || value.replace(/px$/, '');
     applyLivePreview(property, value);
     queueChange(property, value);
   }
 
-  function onSpacingChange(e) {
-    const { property, value } = e.detail;
-
+  function onSpacingChange({ property, value }) {
     applyLivePreview(property, value);
     commitChange(property, value);
   }
 
-  function onBorderInput(e) {
-    const { property, value } = e.detail;
+  function onBorderInput({ property, value }) {
     borderValues = { ...borderValues, [property]: value };
     if (activeState === 'normal') {
       normalBorderValues = { ...normalBorderValues, [property]: value };
     }
-
     applyLivePreview(property, value);
     queueChange(property, value);
   }
 
-  function onBorderChange(e) {
-    const { property, value } = e.detail;
+  function onBorderChange({ property, value }) {
     borderValues = { ...borderValues, [property]: value };
     if (activeState === 'normal') {
       normalBorderValues = { ...normalBorderValues, [property]: value };
     }
-
     applyLivePreview(property, value);
     commitChange(property, value);
   }
 
-  function onLayoutInput(e) {
-    const { property, value } = e.detail;
+  function onLayoutInput({ property, value }) {
     layoutValues[property] = value;
-
     applyLivePreview(property, value);
     queueChange(property, value);
   }
 
-  function onLayoutChange(e) {
-    const { property, value } = e.detail;
+  function onLayoutChange({ property, value }) {
     layoutValues[property] = value;
-
     applyLivePreview(property, value);
     commitChange(property, value);
     ensureFlexDisplay();
@@ -526,7 +514,7 @@
       if (element) element.style.removeProperty(prop);
     }
     previewedProperties.clear();
-    dispatch('close');
+    onclose?.();
   }
 
   // Stop event propagation from the panel to avoid triggering overlay click handlers
@@ -571,23 +559,23 @@
     return order.map(id => sectionMap[id]).filter(Boolean);
   }
 
-  $: sections = getPanelSections(element);
+  let sections = $derived(getPanelSections(element));
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="polish-panel"
   bind:this={panelEl}
   style="left: {panelLeft}px; top: {panelTop}px; pointer-events: auto;"
-  on:mousedown={onPanelMousedown}
-  on:click={onPanelClick}
+  onmousedown={onPanelMousedown}
+  onclick={onPanelClick}
 >
   <!-- Header -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="polish-panel-header" on:mousedown={onHeaderMousedown}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="polish-panel-header" onmousedown={onHeaderMousedown}>
     <span class="polish-panel-title">Properties</span>
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <span class="polish-panel-close" on:click={onClose}>&times;</span>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span class="polish-panel-close" onclick={onClose}>&times;</span>
   </div>
 
   <!-- State toggle: Normal / :hover / :focus / :active -->
@@ -596,13 +584,13 @@
       <button
         class="polish-state-btn"
         class:active={activeState === 'normal'}
-        on:click={() => activeState = 'normal'}
+        onclick={() => activeState = 'normal'}
       >Normal</button>
       {#each [...pseudoClasses] as pc}
         <button
           class="polish-state-btn"
           class:active={activeState === pc}
-          on:click={() => activeState = pc}
+          onclick={() => activeState = pc}
         >:{pc}</button>
       {/each}
     </div>
@@ -626,16 +614,16 @@
   <div class="polish-panel-body">
     {#each sections as sectionDef}
       <div class="polish-section" class:collapsed={collapsedSections[sectionDef.id]}>
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="polish-section-header" on:click={() => toggleSection(sectionDef.id)}>
+        <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+        <div class="polish-section-header" onclick={() => toggleSection(sectionDef.id)}>
           <span class="polish-section-arrow">&#9654;</span> {sectionDef.section}
         </div>
         <div class="polish-section-content">
           {#if sectionDef.id === 'border'}
             <BorderControl
               values={borderValues}
-              on:input={onBorderInput}
-              on:change={onBorderChange}
+              oninput={onBorderInput}
+              onchange={onBorderChange}
             />
           {:else if sectionDef.id === 'spacing'}
             <!-- Spacing section: box model + lock + shorthand badges -->
@@ -643,15 +631,15 @@
               <BoxModel
                 values={spacingValues}
                 uniformMode={$uniformMode}
-                on:input={onSpacingInput}
-                on:change={onSpacingChange}
+                oninput={onSpacingInput}
+                onchange={onSpacingChange}
               />
               <div class="polish-lock-row">
                 <button
                   class="polish-lock-btn"
                   class:locked={$uniformMode}
                   title="Toggle uniform spacing"
-                  on:click={toggleLock}
+                  onclick={toggleLock}
                 >{$uniformMode ? '\uD83D\uDD12' : '\uD83D\uDD13'}</button>
                 <span class="polish-lock-label">Uniform</span>
               </div>
@@ -675,14 +663,14 @@
                 max={def.max}
                 step={def.step}
                 units={def.units}
-                on:input={onControlInput}
-                on:change={onControlChange}
+                oninput={onControlInput}
+                onchange={onControlChange}
               />
             {/each}
             <LayoutControl
               values={layoutValues}
-              on:input={onLayoutInput}
-              on:change={onLayoutChange}
+              oninput={onLayoutInput}
+              onchange={onLayoutChange}
             />
           {:else if sectionDef.controls}
             {#each sectionDef.controls as def}
@@ -691,8 +679,8 @@
                   property={def.property}
                   value={controlValues[def.property] || ''}
                   label={def.label}
-                  on:input={onControlInput}
-                  on:change={onControlChange}
+                  oninput={onControlInput}
+                  onchange={onControlChange}
                 />
               {:else if def.type === 'slider'}
                 <SliderControl
@@ -703,8 +691,8 @@
                   max={def.max}
                   step={def.step}
                   units={def.units}
-                  on:input={onControlInput}
-                  on:change={onControlChange}
+                  oninput={onControlInput}
+                  onchange={onControlChange}
                 />
               {:else if def.type === 'select'}
                 <SelectControl
@@ -712,7 +700,7 @@
                   value={controlValues[def.property] || ''}
                   label={def.label}
                   options={getOptions(def)}
-                  on:change={onControlChange}
+                  onchange={onControlChange}
                 />
               {/if}
             {/each}
