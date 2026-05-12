@@ -11,7 +11,7 @@ export default defineConfig({
       emitCss: false,
       onwarn(warning, handler) {
         // Suppress a11y warnings — this is a developer tool overlay, not a web app
-        if (warning.code.startsWith('a11y-')) return;
+        if (warning.code.startsWith('a11y-') || warning.code.startsWith('a11y_')) return;
         handler(warning);
       },
     }),
