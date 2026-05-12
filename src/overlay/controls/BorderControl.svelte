@@ -1,18 +1,17 @@
 <script>
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { rgbToHex, parseNumericValue } from '../lib/utils.js';
   import PickrSwatch from './PickrSwatch.svelte';
   import { BORDER_SIDE_ICONS } from './borderSideIcons.js';
 
-  export let values = {};
+  let { values = {}, oninput, onchange } = $props();
 
-  const dispatch = createEventDispatcher();
   const SIDES = ['top', 'right', 'bottom', 'left'];
   const STYLES = ['none', 'solid', 'dashed', 'dotted', 'double'];
   const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
-  let activeSide = 'all';
-  let dropdownOpen = false;
+  let activeSide = $state('all');
+  let dropdownOpen = $state(false);
   let dropdownEl;
 
   const SIDE_OPTIONS = [
@@ -24,26 +23,28 @@
   ];
 
   // Derive current side's values
-  $: refSide = activeSide === 'all' ? 'top' : activeSide;
-  $: currentWidth = parseNumericValue(values[`border-${refSide}-width`] || '0px').num;
-  $: currentStyle = values[`border-${refSide}-style`] || 'none';
-  $: currentColorRaw = values[`border-${refSide}-color`] || '';
-  $: normalizedColor = rgbToHex(currentColorRaw);
-  $: currentHex = normalizedColor === 'transparent' ? '#000000' : normalizedColor;
+  let refSide = $derived(activeSide === 'all' ? 'top' : activeSide);
+  let currentWidth = $derived(parseNumericValue(values[`border-${refSide}-width`] || '0px').num);
+  let currentStyle = $derived(values[`border-${refSide}-style`] || 'none');
+  let currentColorRaw = $derived(values[`border-${refSide}-color`] || '');
+  let normalizedColor = $derived(rgbToHex(currentColorRaw));
+  let currentHex = $derived(normalizedColor === 'transparent' ? '#000000' : normalizedColor);
 
   // Derive hasBorder from values prop. The `values` object reference changes
   // when the parent passes updated props, so track it to avoid recalculating
   // during intermediate states (where values is stale but hasBorder was set directly).
-  let hasBorder = false;
+  let hasBorder = $state(false);
   let _prevValues = null;
-  $: if (values !== _prevValues) {
-    _prevValues = values;
-    hasBorder = SIDES.some(side => {
-      const w = parseNumericValue(values[`border-${side}-width`] || '0px').num;
-      const s = values[`border-${side}-style`] || 'none';
-      return w > 0 && s !== 'none';
-    });
-  }
+  $effect(() => {
+    if (values !== _prevValues) {
+      _prevValues = values;
+      hasBorder = SIDES.some(side => {
+        const w = parseNumericValue(values[`border-${side}-width`] || '0px').num;
+        const s = values[`border-${side}-style`] || 'none';
+        return w > 0 && s !== 'none';
+      });
+    }
+  });
 
   function addBorder() {
     hasBorder = true;
@@ -65,7 +66,8 @@
     const sides = activeSide === 'all' ? SIDES : [activeSide];
     for (const side of sides) {
       const perSide = baseBorderProperty.replace('border-', `border-${side}-`);
-      dispatch(eventName, { property: perSide, value });
+      if (eventName === 'input') oninput?.({ property: perSide, value });
+      else onchange?.({ property: perSide, value });
     }
   }
 
@@ -74,16 +76,17 @@
     for (const [baseProp, value] of Object.entries(props)) {
       for (const side of SIDES) {
         const perSide = baseProp.replace('border-', `border-${side}-`);
-        dispatch(eventName, { property: perSide, value });
+        if (eventName === 'input') oninput?.({ property: perSide, value });
+        else onchange?.({ property: perSide, value });
       }
     }
   }
 
-  function onColorInput(e) {
-    emitBorderEvent('input', 'border-color', e.detail.value);
+  function onColorInput({ value }) {
+    emitBorderEvent('input', 'border-color', value);
   }
-  function onColorChange(e) {
-    emitBorderEvent('change', 'border-color', e.detail.value);
+  function onColorChange({ value }) {
+    emitBorderEvent('change', 'border-color', value);
   }
 
   function parseBorderWidth(rawInput) {
@@ -133,8 +136,8 @@
     <div class="border-row">
       <PickrSwatch
         color={currentHex}
-        on:input={onColorInput}
-        on:change={onColorChange}
+        oninput={onColorInput}
+        onchange={onColorChange}
       />
       <input
         type="text"
@@ -142,10 +145,10 @@
         placeholder="#000000"
         maxlength="7"
         value={currentHex}
-        on:input={(e) => emitHexColor(e, 'input')}
-        on:change={(e) => emitHexColor(e, 'change')}
+        oninput={(e) => emitHexColor(e, 'input')}
+        onchange={(e) => emitHexColor(e, 'change')}
       />
-      <button class="border-remove" title="Remove border" on:click={removeBorder}>&minus;</button>
+      <button class="border-remove" title="Remove border" onclick={removeBorder}>&minus;</button>
     </div>
 
     <!-- Style + width + side selector row -->
@@ -153,7 +156,7 @@
       <select
         class="border-style-select"
         value={currentStyle}
-        on:change={onStyleChange}
+        onchange={onStyleChange}
       >
         {#each STYLES as s}
           <option value={s}>{s}</option>
@@ -164,8 +167,8 @@
         class="border-width-input"
         min="0" max="100" step="1"
         value={currentWidth}
-        on:input={onWidthInput}
-        on:change={onWidthChange}
+        oninput={onWidthInput}
+        onchange={onWidthChange}
       />
       <span class="border-unit">px</span>
 
@@ -174,7 +177,7 @@
         <button
           class="side-trigger"
           title="Border side: {activeSide}"
-          on:click={() => dropdownOpen = !dropdownOpen}
+          onclick={() => dropdownOpen = !dropdownOpen}
         >
           <span class="side-trigger-icon">{@html BORDER_SIDE_ICONS[activeSide]}</span>
         </button>
@@ -185,7 +188,7 @@
               <button
                 class="side-option"
                 class:selected={activeSide === opt.value}
-                on:click={() => selectSide(opt.value)}
+                onclick={() => selectSide(opt.value)}
               >
                 {#if activeSide === opt.value}
                   <span class="side-check">&#10003;</span>
@@ -202,7 +205,7 @@
     </div>
   </div>
 {:else}
-  <button class="border-add" on:click={addBorder}>+ Add border</button>
+  <button class="border-add" onclick={addBorder}>+ Add border</button>
 {/if}
 
 <style>
