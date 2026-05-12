@@ -1,11 +1,7 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { formatSpacingValue } from '../lib/utils.js';
 
-  export let values = {};
-  export let uniformMode = false;
-
-  const dispatch = createEventDispatcher();
+  let { values = {}, uniformMode = false, oninput, onchange } = $props();
 
   function getSpacingValue(prefix, side) {
     return values[`${prefix}-${side}`] || '0';
@@ -16,7 +12,8 @@
     const detail = eventName === 'input'
       ? { property: prop, value: fullVal, raw: e.target.value }
       : { property: prop, value: fullVal };
-    dispatch(eventName, detail);
+    if (eventName === 'input') oninput?.(detail);
+    else onchange?.(detail);
 
     if (uniformMode) {
       const prefix = prop.startsWith('margin') ? 'margin' : 'padding';
@@ -26,7 +23,8 @@
           const sibDetail = eventName === 'input'
             ? { property: sibProp, value: fullVal, raw: e.target.value }
             : { property: sibProp, value: fullVal };
-          dispatch(eventName, sibDetail);
+          if (eventName === 'input') oninput?.(sibDetail);
+          else onchange?.(sibDetail);
         }
       });
     }
@@ -38,10 +36,10 @@
   <div class="layer margin-layer">
     <span class="layer-label">margin</span>
     <div class="side top">
-      <input value={getSpacingValue('margin','top')} on:input={(e) => emitSpacingEvent(e,'margin-top','input')} on:change={(e) => emitSpacingEvent(e,'margin-top','change')} />
+      <input value={getSpacingValue('margin','top')} oninput={(e) => emitSpacingEvent(e,'margin-top','input')} onchange={(e) => emitSpacingEvent(e,'margin-top','change')} />
     </div>
     <div class="side left">
-      <input value={getSpacingValue('margin','left')} on:input={(e) => emitSpacingEvent(e,'margin-left','input')} on:change={(e) => emitSpacingEvent(e,'margin-left','change')} />
+      <input value={getSpacingValue('margin','left')} oninput={(e) => emitSpacingEvent(e,'margin-left','input')} onchange={(e) => emitSpacingEvent(e,'margin-left','change')} />
     </div>
     <div class="inner">
       <!-- Border layer -->
@@ -58,19 +56,19 @@
           <div class="layer padding-layer">
             <span class="layer-label">padding</span>
             <div class="side top">
-              <input value={getSpacingValue('padding','top')} on:input={(e) => emitSpacingEvent(e,'padding-top','input')} on:change={(e) => emitSpacingEvent(e,'padding-top','change')} />
+              <input value={getSpacingValue('padding','top')} oninput={(e) => emitSpacingEvent(e,'padding-top','input')} onchange={(e) => emitSpacingEvent(e,'padding-top','change')} />
             </div>
             <div class="side left">
-              <input value={getSpacingValue('padding','left')} on:input={(e) => emitSpacingEvent(e,'padding-left','input')} on:change={(e) => emitSpacingEvent(e,'padding-left','change')} />
+              <input value={getSpacingValue('padding','left')} oninput={(e) => emitSpacingEvent(e,'padding-left','input')} onchange={(e) => emitSpacingEvent(e,'padding-left','change')} />
             </div>
             <div class="inner">
               <div class="content-box">content</div>
             </div>
             <div class="side right">
-              <input value={getSpacingValue('padding','right')} on:input={(e) => emitSpacingEvent(e,'padding-right','input')} on:change={(e) => emitSpacingEvent(e,'padding-right','change')} />
+              <input value={getSpacingValue('padding','right')} oninput={(e) => emitSpacingEvent(e,'padding-right','input')} onchange={(e) => emitSpacingEvent(e,'padding-right','change')} />
             </div>
             <div class="side bottom">
-              <input value={getSpacingValue('padding','bottom')} on:input={(e) => emitSpacingEvent(e,'padding-bottom','input')} on:change={(e) => emitSpacingEvent(e,'padding-bottom','change')} />
+              <input value={getSpacingValue('padding','bottom')} oninput={(e) => emitSpacingEvent(e,'padding-bottom','input')} onchange={(e) => emitSpacingEvent(e,'padding-bottom','change')} />
             </div>
           </div>
         </div>
@@ -83,10 +81,10 @@
       </div>
     </div>
     <div class="side right">
-      <input value={getSpacingValue('margin','right')} on:input={(e) => emitSpacingEvent(e,'margin-right','input')} on:change={(e) => emitSpacingEvent(e,'margin-right','change')} />
+      <input value={getSpacingValue('margin','right')} oninput={(e) => emitSpacingEvent(e,'margin-right','input')} onchange={(e) => emitSpacingEvent(e,'margin-right','change')} />
     </div>
     <div class="side bottom">
-      <input value={getSpacingValue('margin','bottom')} on:input={(e) => emitSpacingEvent(e,'margin-bottom','input')} on:change={(e) => emitSpacingEvent(e,'margin-bottom','change')} />
+      <input value={getSpacingValue('margin','bottom')} oninput={(e) => emitSpacingEvent(e,'margin-bottom','input')} onchange={(e) => emitSpacingEvent(e,'margin-bottom','change')} />
     </div>
   </div>
 </div>
