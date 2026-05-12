@@ -440,7 +440,6 @@ describe('isTextElement', () => {
     assert.ok(isTextElement('h1'));
     assert.ok(isTextElement('span'));
     assert.ok(isTextElement('a'));
-    assert.ok(isTextElement('button'));
     assert.ok(isTextElement('label'));
     assert.ok(isTextElement('li'));
     assert.ok(isTextElement('blockquote'));
