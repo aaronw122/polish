@@ -1,18 +1,14 @@
-<script context="module">
+<script module>
   let cssInjected = false;
 </script>
 
 <script>
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import Pickr from '@simonwep/pickr';
   import pickrBaseCSS from '@simonwep/pickr/dist/themes/nano.min.css?inline';
   import { PICKR_DARK_OVERRIDES } from './pickrTheme.js';
 
-  export let color = '#000000';
-  export let showTransparent = false;
-  export let isTransparent = false;
-
-  const dispatch = createEventDispatcher();
+  let { color = '#000000', showTransparent = false, isTransparent = false, oninput, onchange, ontransparent } = $props();
   const COMMIT_DELAY_MS = 300;
 
   let pickerOpen = false;
@@ -45,7 +41,7 @@
     btn.title = isTransparent ? 'Add color' : 'Set transparent';
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      dispatch('transparent');
+      ontransparent?.();
       pickerOpen = false;
     });
     if (root.interaction.result) {
@@ -58,11 +54,11 @@
     pickrInstance.on('change', (c) => {
       if (updatingFromProp) return;
       const hex = pickrColorToHex(c);
-      dispatch('input', { value: hex });
+      oninput?.({ value: hex });
 
       clearTimeout(commitTimer);
       commitTimer = setTimeout(() => {
-        dispatch('change', { value: hex });
+        onchange?.({ value: hex });
       }, COMMIT_DELAY_MS);
     });
 
@@ -70,7 +66,7 @@
       if (updatingFromProp) return;
       clearTimeout(commitTimer);
       const hex = pickrColorToHex(inst.getColor());
-      dispatch('change', { value: hex });
+      onchange?.({ value: hex });
     });
   }
 
@@ -112,17 +108,21 @@
   }
 
   // Sync pickr color when prop changes externally
-  $: if (pickrInstance && color) {
-    updatingFromProp = true;
-    try { pickrInstance.setColor(color); } catch (_) {}
-    updatingFromProp = false;
-  }
+  $effect(() => {
+    if (pickrInstance && color) {
+      updatingFromProp = true;
+      try { pickrInstance.setColor(color); } catch (_) {}
+      updatingFromProp = false;
+    }
+  });
 
   // Sync transparent toggle button state
-  $: if (transparentBtn) {
-    transparentBtn.className = 'pcr-no-color' + (isTransparent ? ' active' : '');
-    transparentBtn.title = isTransparent ? 'Add color' : 'Set transparent';
-  }
+  $effect(() => {
+    if (transparentBtn) {
+      transparentBtn.className = 'pcr-no-color' + (isTransparent ? ' active' : '');
+      transparentBtn.title = isTransparent ? 'Add color' : 'Set transparent';
+    }
+  });
 
   function handleClickOutside(e) {
     if (pickerOpen && wrapEl && !wrapEl.contains(e.target)) {
@@ -148,7 +148,7 @@
 </script>
 
 <div class="pickr-wrap" bind:this={wrapEl}>
-  <div class="pickr-swatch" class:transparent={isTransparent} on:click={togglePicker}>
+  <div class="pickr-swatch" class:transparent={isTransparent} onclick={togglePicker}>
     <div class="swatch-fill" style="background-color: {isTransparent ? 'transparent' : color}"></div>
   </div>
 
